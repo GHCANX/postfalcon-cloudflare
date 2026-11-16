@@ -494,9 +494,10 @@ kept only for reference; everything that matters from it is in the plan and this
   trigger-written rows too, so single-row checks on a table with a trigger use `RETURNING`. Instance ids are derived (`post-<id>-<scheduledFor>`), never read from the
   event. Until platform adapters are ported, a claimed post ends in `review_required` — it must never report
   "posted".
-- This checkout is not a git repository (Codex unpacked the upstream source, commit `fd3a797`, over the old
-  install directory, keeping its `.env`, `docker-compose.yml` and `Caddyfile`), so there's no diff or history to
-  lean on and nothing to commit here.
+- This checkout tracks the public repo `GHCANX/postfalcon-cloudflare` (`origin`, HTTPS via the `gh` login, branch
+  `main`) since 2026-11-16; commit and push Cloudflare work there. Never commit `conversation_from_gpt.md` or
+  `Caddyfile` (both in `.git/info/exclude`) or the local `docker-compose.yml` edit — that file and `Caddyfile` are
+  this machine's installed-image variant, not the repo's build-from-source compose.
 
 ## Suggestion
 

@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => {
       previewUrls: true,
       assets: {
         notFoundHandling: "404-page",
-        runWorkerFirst: ["/api/*", "/healthz"],
+        runWorkerFirst: ["/api/*", "/uploads/*", "/healthz"],
       },
       env: {
         APP_PROFILE: bindings.text("self-hosted-single-user"),
@@ -47,9 +47,9 @@ export default defineConfig(({ mode }) => {
           // Advance this suffix deliberately when a Workflow code change must
           // take effect, retaining old definitions only until their instances
           // have drained or been explicitly inspected.
-          name: `postfalcon-${suffix}-post-delivery-v6`,
+          name: `postfalcon-${suffix}-post-delivery-v7`,
           concurrency: { limit: 10 },
-          limits: { steps: 8 },
+          limits: { steps: 24 },
           defaultRetention: {
             successRetention: "3 days",
             errorRetention: "3 days",

@@ -696,3 +696,48 @@ id/secret supplied as Worker secrets (and a registered callback URL on the
 final domain). Since a deploy is refused while a declared secret is unset, they
 are deferred until those credentials exist; the code can be written against the
 Mastodon pattern at any time. Work continues on credential-free items (6, 7, 8).
+
+### Work items 6, 7, 8 — media, posts and publishing, first slices (2026-11-16)
+
+**Media (6).** Migrations `0007_media_files.sql` (object registry; posts point to
+objects through `post_media.media_file_id`, so cross-posts share one R2 object
+instead of copying it) and `0008_publish_started.sql`, both applied to staging.
+`POST /api/v1/media` takes the raw image as the body (jpeg/png/webp/gif, 25 MiB,
+`Content-Length` required, streamed through `FixedLengthStream`, budget reserved
+before the R2 put). `GET|HEAD /uploads/<uuid>.<ext>` is public like the Docker
+app's, serves ranges, and spends one Class B operation per read (503 once the
+month's budget is gone). A 15-minute maintenance pass deletes objects nothing
+references after a 24 h grace: it removes the `media_files` row first (so a post
+cannot attach it concurrently), then the object, then releases the storage
+budget. Account/post deletion therefore needs no media code. Not done: video,
+resumable uploads, magic-byte sniffing (type is the declared, allow-listed
+`Content-Type`, served `nosniff`), D1 budget view.
+
+**Posts (7).** `/api/posts` and `/api/v1/posts` (JSON only; uploads attach by
+`media_ids`, a deliberate change from the Docker multipart create): create with
+one or many channels (cross-post group), draft/schedule/`publish_now`, repeat
+fields stored, per-post TikTok/YouTube settings validated, alt text, list with
+status/account filters, get, patch, delete. Clients can set only
+draft/scheduled/canceled; posting/posted posts are locked (409); changing the
+time or status clears `workflow_instance_id` so reconciliation binds a fresh
+Workflow instance and the old one's claim no longer matches. Known gap for item
+8: the instance id is `post-<id>-<scheduledFor>`, so rescheduling a post back to
+a time whose earlier instance already finished would reuse a finished instance;
+add a schedule revision to the id before relying on reschedule-to-same-time.
+
+**Publishing (8).** Adapters in `src/platforms/` for Mastodon, Telegram and
+Bluesky, with a failure taxonomy (`types.ts`): `transient` (nothing posted;
+retried up to 3 attempts with backoff, then `failed`), `rejected` and `auth`
+(`failed`; `auth` also sets `needs_reconnect_at`), `ambiguous` (timeout, dropped
+connection, 5xx or unparseable reply on the final create → `review_required`,
+never retried). The workflow (`-v7`) writes `posting_started_at` before
+contacting the platform, so a step the engine re-runs after an interruption goes
+to review instead of publishing twice; platform outcomes are returned, not
+thrown, with engine retries off for that step; every transition and its audit
+row are one batch guarded by the lease. A publish that outlives its 300 s lease
+is still recorded as posted. Verified locally end to end with a fake Telegram
+token (404 → `failed`, audit rows, no retry), plus media attach/shared
+references/sweep. Not verified: a real publish to any platform (needs real
+accounts); the failure emails (item 5, Mailgun); recurring next-occurrence
+creation (item 9). Posts to platforms with no adapter still end in
+`review_required`.

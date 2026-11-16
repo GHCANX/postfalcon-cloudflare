@@ -63,26 +63,8 @@ accountRoutes.delete("/:id", async (context) => {
   const userId = context.get("user").id;
   const database = context.env.DB;
 
-  // Deleting the account cascades to its posts and their media rows, which
-  // would orphan any R2 objects. Media upload is not ported yet, so no row has
-  // an object key today; until the R2 lifecycle (tombstones, cleanup) exists,
-  // refuse rather than leak stored bytes.
-  const stored = await database
-    .prepare(
-      `SELECT 1 AS present FROM post_media
-         JOIN posts ON posts.id = post_media.post_id
-        WHERE posts.social_account_id = ? AND posts.user_id = ? AND post_media.r2_key IS NOT NULL
-        LIMIT 1`,
-    )
-    .bind(id, userId)
-    .first();
-  if (stored) {
-    return context.json(
-      { error: "media_cleanup_unavailable", message: "This account has posts with stored media; remove them first." },
-      409,
-    );
-  }
-
+  // Deleting the account cascades to its posts and their media references;
+  // the stored files are released by the reference-counted media sweep.
   const removed = await database
     .prepare("DELETE FROM social_accounts WHERE id = ? AND user_id = ? RETURNING id, platform")
     .bind(id, userId)

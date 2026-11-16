@@ -65,6 +65,23 @@ First sign-in on a fresh instance: `POST /api/setup` with
 `{setup_token, email, password}` (after fetching `GET /api/csrf-token`). It only
 works while the users table is empty; after that `/api/users` stays closed.
 
+## API surface (staging)
+
+All under `/api`, session cookie or `Authorization: Bearer pf_…`; state-changing
+cookie requests need the `x-csrf-token` from `GET /api/csrf-token`.
+
+| Area | Routes |
+| --- | --- |
+| Identity | `POST /setup`, `POST /auth/login`, `/auth/logout`, `GET /auth/me`, `POST /auth/change-password`, `GET/POST/DELETE /auth/api-token` |
+| Accounts | `GET /social-accounts`, `DELETE /social-accounts/:id`, `POST /bluesky/connect`, `POST /telegram/connect`, `GET /mastodon/connect?instance=` (+ callback) |
+| Media | `POST /v1/media` (raw image body, `Content-Type: image/*`, max 25 MiB), public `GET /uploads/<uuid>.<ext>` |
+| Posts | `GET/POST /v1/posts`, `GET/PATCH/DELETE /v1/posts/:id` (JSON; attach uploads with `media_ids`) |
+
+Publishing: Mastodon, Telegram and Bluesky have Worker adapters. A failure
+before the platform accepted the post is retried (up to 3 attempts); a refused
+post is `failed`; a timeout or 5xx on the final create goes to
+`review_required` and is never retried automatically.
+
 ## Current boundary
 
 The only deployed behavior at this stage is a D1-backed health endpoint and a

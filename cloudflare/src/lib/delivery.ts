@@ -61,6 +61,9 @@ function requireDeliveryClaimValues(post: DeliveryParams, instanceId: string, no
   }
 }
 
+// Long enough for several media uploads at the adapters' 20 s request timeout.
+const LEASE_SECONDS = 300;
+
 export async function findUnboundScheduledPosts(database: D1Database, limit = 10): Promise<ScheduledPost[]> {
   const result = await database
     .prepare(
@@ -124,6 +127,7 @@ export async function claimPostForDelivery(
               workflow_instance_id = ?,
               posting_lease_token = ?,
               posting_lease_expires_at = ?,
+              posting_started_at = NULL,
               publish_attempts = publish_attempts + 1,
               last_publish_attempt_at = ?,
               updated_at = ?
@@ -133,7 +137,7 @@ export async function claimPostForDelivery(
           AND scheduled_for <= ?
         RETURNING id AS postId`,
     )
-    .bind(instanceId, leaseToken, now + 120, now, now, post.postId, post.scheduledFor, now)
+    .bind(instanceId, leaseToken, now + LEASE_SECONDS, now, now, post.postId, post.scheduledFor, now)
     .first<{ postId: number }>();
 
   if (!result) return null;

@@ -25,7 +25,7 @@ function parseContentLength(request: Request): number {
   return bytes;
 }
 
-function cappedBody(body: ReadableStream<Uint8Array>, maximumBytes: number): {
+function cappedBody(body: ReadableStream<Uint8Array>, maximumBytes: number, declaredBytes: number): {
   body: ReadableStream<Uint8Array>;
   bytesReceived: () => number;
 } {
@@ -41,7 +41,9 @@ function cappedBody(body: ReadableStream<Uint8Array>, maximumBytes: number): {
     },
   });
 
-  return { body: body.pipeThrough(stream), bytesReceived: () => received };
+  // R2 needs a stream of known length; FixedLengthStream also errors when the
+  // body is shorter or longer than the declared Content-Length.
+  return { body: body.pipeThrough(stream).pipeThrough(new FixedLengthStream(declaredBytes)), bytesReceived: () => received };
 }
 
 export type MediaUpload = {
@@ -77,7 +79,7 @@ export async function storeBoundedMedia(
     totalBytes: declaredBytes,
   });
 
-  const capped = cappedBody(request.body, budget.maxObjectBytes);
+  const capped = cappedBody(request.body, budget.maxObjectBytes, declaredBytes);
   try {
     await bucket.put(upload.key, capped.body, {
       httpMetadata: { contentType: upload.contentType },
@@ -87,6 +89,9 @@ export async function storeBoundedMedia(
       mediaBytes: declaredBytes,
       totalBytes: declaredBytes,
     });
+    if (capped.bytesReceived() !== declaredBytes && !(error instanceof UploadRejectedError)) {
+      throw new UploadRejectedError("Upload body length did not match Content-Length");
+    }
     throw error;
   }
 

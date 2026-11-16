@@ -7,12 +7,15 @@ import {
   releaseExpiredDeliveryLeases,
   workflowInstanceId,
 } from "./lib/delivery";
+import { sweepUnreferencedMedia } from "./lib/media";
 import { purgeOAuthStates } from "./lib/oauth";
 import { purgeRateLimits } from "./lib/rate-limit";
 import { purgeExpiredSessions } from "./lib/sessions";
 import { accountRoutes } from "./routes/accounts";
 import { authRoutes } from "./routes/auth";
 import { connectRoutes } from "./routes/connect";
+import { mediaApi, publicMedia } from "./routes/media";
+import { postRoutes } from "./routes/posts";
 import { oauthRoutes } from "./routes/oauth";
 import { ScheduledPostDelivery } from "./workflows/post-delivery";
 
@@ -53,6 +56,9 @@ app.route("/api", authRoutes);
 app.route("/api", connectRoutes);
 app.route("/api", oauthRoutes);
 app.route("/api/social-accounts", accountRoutes);
+app.route("/api/v1/media", mediaApi);
+app.route("/api/posts", postRoutes);
+app.route("/api/v1/posts", postRoutes);
 app.route("/api/v1/social-accounts", accountRoutes);
 
 function log(event: string, fields: Record<string, unknown> = {}): void {
@@ -132,9 +138,12 @@ async function runReconciliation(
   }
 }
 
+app.route("/uploads", publicMedia);
+
 /** Deletes ended sessions and old rate-limit windows. Runs every 15 minutes. */
 async function runMaintenance(env: Env): Promise<void> {
-  await Promise.all([purgeExpiredSessions(env.DB), purgeRateLimits(env.DB), purgeOAuthStates(env.DB)]);
+  await Promise.all([purgeExpiredSessions(env.DB), purgeRateLimits(env.DB), purgeOAuthStates(env.DB),
+    sweepUnreferencedMedia(env.DB, env.MEDIA, env.R2_BUDGET)]);
 }
 
 app.get("/healthz", async (context) => {

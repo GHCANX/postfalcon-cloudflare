@@ -7,44 +7,80 @@ import {
   parseDeliveryParams,
   workflowInstanceId,
 } from "../lib/delivery";
+import { markFailed, markPublished, markPublishStarted, publishClaimedPost, requeueForRetry } from "../lib/publish";
+
+const MAX_ATTEMPTS = 3;
+const DEFAULT_BACKOFF_SECONDS = [60, 300];
+
+type Result =
+  | { outcome: "skipped" | "published" | "failed" | "review_required" }
+  | { outcome: "retry"; seconds: number };
 
 export class ScheduledPostDelivery extends WorkflowEntrypoint<Env, DeliveryParams> {
   async run(event: WorkflowEvent<DeliveryParams>, step: WorkflowStep) {
-    // Input is validated here, at the platform boundary, before anything reads
-    // it: an instance created by `cf workflows instances create --params` gets
-    // its payload as a JSON-encoded string, not the object `workflow.create()`
-    // delivers, and some runtime versions expose it as `params`.
+    // Input is validated at the platform boundary: an instance created from the
+    // CLI delivers a JSON string, and some runtime versions expose it as `params`.
     const params = parseDeliveryParams(
       (event as WorkflowEvent<DeliveryParams> & { params?: unknown }).params ?? event.payload,
     );
-    // Derive the ID from the durable scheduling data rather than trusting a
-    // runtime-provided event field. It makes the same ID available to a CLI
-    // test, a request path, and Cron reconciliation.
     const instanceId = workflowInstanceId(params);
     const dueAt = params.scheduledFor * 1000;
     if (dueAt > Date.now()) {
       await step.sleepUntil("wait until scheduled delivery", dueAt);
     }
 
-    const claim = await step.do("claim scheduled post", async () =>
-      claimPostForDelivery(this.env.DB, params, instanceId),
-    );
-    if (!claim) {
-      return { outcome: "skipped" as const };
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+      const claim = await step.do(`claim ${attempt}`, async () => claimPostForDelivery(this.env.DB, params, instanceId));
+      if (!claim) return { outcome: "skipped" as const };
+
+      // Platform outcomes are returned, never thrown, and the step is not
+      // retried by the engine: an interrupted publish must not run twice.
+      const result = await step.do(`publish ${attempt}`, { retries: { limit: 0, delay: 1 } }, async (): Promise<Result> => {
+        if (!(await markPublishStarted(this.env.DB, claim))) {
+          await markReviewRequired(
+            this.env.DB,
+            claim,
+            "The publish step was interrupted after it may have contacted the platform; check the platform before retrying.",
+          );
+          return { outcome: "review_required" };
+        }
+
+        const published = await publishClaimedPost(this.env, claim);
+        if (published.kind === "published") {
+          await markPublished(this.env.DB, claim, published.platformPostId);
+          return { outcome: "published" };
+        }
+        if (published.kind === "no_adapter") {
+          await markReviewRequired(
+            this.env.DB,
+            claim,
+            `No Cloudflare adapter exists for ${published.platform}; manual review is required before retrying.`,
+          );
+          return { outcome: "review_required" };
+        }
+        switch (published.failure) {
+          case "ambiguous":
+            await markReviewRequired(this.env.DB, claim, published.message);
+            return { outcome: "review_required" };
+          case "transient":
+            if (attempt < MAX_ATTEMPTS) {
+              await requeueForRetry(this.env.DB, claim, published.message);
+              return { outcome: "retry", seconds: published.retryAfterSeconds ?? DEFAULT_BACKOFF_SECONDS[attempt - 1] ?? 300 };
+            }
+            await markFailed(this.env.DB, claim, `${published.message} (gave up after ${MAX_ATTEMPTS} attempts; nothing was posted)`, false);
+            return { outcome: "failed" };
+          case "auth":
+            await markFailed(this.env.DB, claim, published.message, true);
+            return { outcome: "failed" };
+          default:
+            await markFailed(this.env.DB, claim, published.message, false);
+            return { outcome: "failed" };
+        }
+      });
+
+      if (result.outcome !== "retry") return result;
+      await step.sleep(`back off ${attempt}`, result.seconds);
     }
-
-    // No platform adapter has been moved to the Worker yet. Failing closed is
-    // safer than an automatic retry when a platform may have accepted a post.
-    // The Mailgun workstream adds a matching operator alert in this same step.
-    await step.do("require manual review until adapter is available", async () => {
-      await markReviewRequired(
-        this.env.DB,
-        claim,
-        "No Cloudflare platform adapter is enabled for this post; manual review is required before retrying.",
-      );
-      return { outcome: "review_required" as const };
-    });
-
-    return { outcome: "review_required" as const };
+    return { outcome: "failed" as const };
   }
 }

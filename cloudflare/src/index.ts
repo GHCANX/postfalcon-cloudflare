@@ -13,6 +13,7 @@ import {
 import { sweepUnreferencedMedia } from "./lib/media";
 import { purgeWebhookDeliveries } from "./lib/webhooks";
 import { refreshPostMetrics } from "./lib/metrics";
+import { resumeBudgetHolds } from "./lib/publish";
 import { purgeOAuthStates } from "./lib/oauth";
 import { purgeRateLimits } from "./lib/rate-limit";
 import { purgeExpiredSessions } from "./lib/sessions";
@@ -186,7 +187,8 @@ app.all("/mcp", async (context) => {
 /** Deletes ended sessions and old rate-limit windows. Runs every 15 minutes. */
 async function runMaintenance(env: Env): Promise<void> {
   await Promise.all([purgeExpiredSessions(env.DB), purgeRateLimits(env.DB), purgeOAuthStates(env.DB), purgeWebhookDeliveries(env.DB),
-    sweepUnreferencedMedia(env.DB, env.MEDIA, env.R2_BUDGET)]);
+    sweepUnreferencedMedia(env.DB, env.MEDIA, env.R2_BUDGET),
+    resumeBudgetHolds(env.DB, env.R2_BUDGET.maxClassBOperationsPerMonth)]);
 }
 
 app.get("/healthz", async (context) => {

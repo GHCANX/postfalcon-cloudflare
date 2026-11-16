@@ -857,3 +857,13 @@ stubbed Mailgun (hosts, auth, success/401/network, no body stored); reset,
 reuse, expiry-free paths, sign-out of old sessions, verification locally.
 **Not verified against real Mailgun** (no key). The reset link points at
 `/reset-password`, which has no page until the UI port.
+
+**budget_hold (2026-11-16, workflow `-v12`).** Per the plan's R2 cap rule, when
+a publish needs media and the Class B read budget is spent, the adapter error is
+`budget` (nothing was posted) and the post goes to `budget_hold` instead of
+failing; text-only posts keep flowing. The 15-minute maintenance pass
+(`resumeBudgetHolds`) returns held posts to `scheduled` (new schedule revision,
+so a fresh Workflow instance) once the month's counter has room — in practice
+after the UTC month rolls over. The admin overview lists held posts as a
+problem. Verified with a SQLite shim: held while exhausted, released in a new
+month.

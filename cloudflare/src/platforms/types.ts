@@ -6,11 +6,14 @@
  *  - `rejected`: the platform refused the post; retrying will not help.
  *  - `auth`: the platform no longer accepts the account's credentials; the
  *    account needs reconnecting.
+ *  - `budget`: the R2 read budget is spent, so the attached media cannot be
+ *    read. Nothing was posted; the post is held (`budget_hold`) and resumes when
+ *    the budget allows, instead of failing.
  *  - `ambiguous`: the final create request may or may not have been applied
  *    (timeout, dropped connection, 5xx). Never retried automatically; the post
  *    goes to manual review.
  */
-export type PublishFailureKind = "transient" | "rejected" | "auth" | "ambiguous";
+export type PublishFailureKind = "transient" | "rejected" | "auth" | "ambiguous" | "budget";
 
 export class PublishError extends Error {
   constructor(

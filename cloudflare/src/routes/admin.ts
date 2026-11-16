@@ -35,6 +35,7 @@ adminRoutes.get("/overview", async (context) => {
                 count(*) FILTER (WHERE status = 'scheduled' AND scheduled_for < ?) AS overdue,
                 count(*) FILTER (WHERE status = 'posting') AS posting,
                 count(*) FILTER (WHERE status = 'review_required') AS review_required,
+                count(*) FILTER (WHERE status = 'budget_hold') AS budget_hold,
                 count(*) FILTER (WHERE status = 'failed' AND updated_at >= ?) AS failed_7d,
                 count(*) FILTER (WHERE status = 'posted' AND posted_at >= ?) AS posted_7d
            FROM posts`,
@@ -55,6 +56,7 @@ adminRoutes.get("/overview", async (context) => {
   if (posts!.overdue! > 0) problems.push(`${posts!.overdue} scheduled post(s) are more than 5 minutes overdue.`);
   if (posts!.posting! > 0) problems.push(`${posts!.posting} post(s) are mid-publish (stuck ones move to review after 5 minutes).`);
   if (posts!.review_required! > 0) problems.push(`${posts!.review_required} post(s) need manual review.`);
+  if (posts!.budget_hold! > 0) problems.push(`${posts!.budget_hold} post(s) are held because the R2 read budget is spent; they resume automatically.`);
   if (reconnect.results.length > 0) problems.push(`${reconnect.results.length} account(s) need reconnecting.`);
   if (r2) {
     const worst = Math.max(percent(r2.media_bytes, budget.maxMediaBytes) ?? 0, percent(r2.total_bytes, budget.maxTotalBytes) ?? 0, percent(r2.class_a_operations, budget.maxClassAOperationsPerMonth) ?? 0, percent(r2.class_b_operations, budget.maxClassBOperationsPerMonth) ?? 0);

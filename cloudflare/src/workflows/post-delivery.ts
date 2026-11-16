@@ -11,7 +11,7 @@ import { adminRecipients, mailConfigured, sendMail } from "../lib/mailer";
 import { deliverWebhook, type WebhookEvent, webhookIdsFor } from "../lib/webhooks";
 import { refreshOne } from "../lib/metrics";
 import { scheduleNextOccurrence } from "../lib/recurrence";
-import { markFailed, markPublished, markPublishStarted, publishClaimedPost, requeueForRetry } from "../lib/publish";
+import { markBudgetHold, markFailed, markPublished, markPublishStarted, publishClaimedPost, requeueForRetry } from "../lib/publish";
 
 const MAX_ATTEMPTS = 3;
 const DEFAULT_BACKOFF_SECONDS = [60, 300];
@@ -73,6 +73,9 @@ export class ScheduledPostDelivery extends WorkflowEntrypoint<Env, DeliveryParam
           case "ambiguous":
             await markReviewRequired(this.env.DB, claim, published.message);
             return { outcome: "review_required" };
+          case "budget":
+            await markBudgetHold(this.env.DB, claim, published.message);
+            return { outcome: "skipped" };
           case "transient":
             if (attempt < MAX_ATTEMPTS) {
               await requeueForRetry(this.env.DB, claim, published.message);

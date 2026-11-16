@@ -72,7 +72,7 @@ export async function publishClaimedPost(env: Env, claim: ClaimedPost): Promise<
       try {
         await reserveR2Budget(env.DB, env.R2_BUDGET, { classBOperations: 1 });
       } catch (error) {
-        if (error instanceof R2BudgetExceededError) throw new PublishError("transient", "Media reads are paused by the R2 budget guard.");
+        if (error instanceof R2BudgetExceededError) throw new PublishError("budget", "Media reads are paused by the R2 budget guard.");
         throw error;
       }
       const object = await env.MEDIA.get(file.r2_key);
@@ -189,6 +189,43 @@ export async function markFailed(database: D1Database, claim: ClaimedPost, messa
     return { newlyFlaggedAccountId: flagged?.id ?? null };
   }
   return { newlyFlaggedAccountId: null };
+}
+
+/**
+ * Nothing was posted and the media budget is spent: park the post. It resumes
+ * (back to scheduled, new schedule revision) when `resumeBudgetHolds` finds headroom.
+ */
+export async function markBudgetHold(database: D1Database, claim: ClaimedPost, message: string): Promise<void> {
+  const settled = await settle(database, claim, {
+    outcome: "skipped",
+    detail: `held: ${message}`,
+    set: "status = 'budget_hold', review_reason = ?, error_message = ?",
+    params: [message, message],
+  });
+  if (!settled) throw new Error(`Lost delivery lease for post ${claim.postId}`);
+}
+
+/**
+ * Releases held posts once this month's Class B budget has room again (a new
+ * month resets it, since the counters roll over with the period key).
+ */
+export async function resumeBudgetHolds(database: D1Database, maxClassBOperations: number, now = new Date()): Promise<number> {
+  const state = await database
+    .prepare("SELECT class_b_operations, period_key FROM r2_budget_state WHERE singleton = 1")
+    .first<{ class_b_operations: number; period_key: string }>();
+  if (!state) return 0;
+  const thisMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const used = state.period_key === thisMonth ? state.class_b_operations : 0;
+  // Keep headroom for the reads each held post needs; one post at a time otherwise.
+  if (used >= maxClassBOperations - 20) return 0;
+  const { results } = await database
+    .prepare(
+      `UPDATE posts SET status = 'scheduled', schedule_revision = schedule_revision + 1, workflow_instance_id = NULL,
+              review_reason = NULL, error_message = NULL, updated_at = unixepoch()
+        WHERE status = 'budget_hold' RETURNING id`,
+    )
+    .all<{ id: number }>();
+  return results.length;
 }
 
 /** Nothing was posted and the platform asked us to wait: back to scheduled for another claim. */

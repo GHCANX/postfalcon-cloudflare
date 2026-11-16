@@ -9,7 +9,9 @@ import {
 } from "./lib/delivery";
 import { purgeRateLimits } from "./lib/rate-limit";
 import { purgeExpiredSessions } from "./lib/sessions";
+import { accountRoutes } from "./routes/accounts";
 import { authRoutes } from "./routes/auth";
+import { connectRoutes } from "./routes/connect";
 import { ScheduledPostDelivery } from "./workflows/post-delivery";
 
 const app = new Hono<AppEnv>();
@@ -46,6 +48,9 @@ app.use("/api/*", async (context, next) => {
 });
 app.use("/api/*", requireConfiguredSecrets, csrfProtection);
 app.route("/api", authRoutes);
+app.route("/api", connectRoutes);
+app.route("/api/social-accounts", accountRoutes);
+app.route("/api/v1/social-accounts", accountRoutes);
 
 function log(event: string, fields: Record<string, unknown> = {}): void {
   console.log(JSON.stringify({ event, ...fields }));

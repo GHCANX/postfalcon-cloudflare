@@ -645,3 +645,29 @@ hashes still verify and are upgraded on first login. Declared secrets
 password reset and verification wait on Mailgun (item 5); Google sign-in and
 account deletion not ported; the Worker has no login page yet (static assets
 come with the UI port), so the API is exercised with curl.
+
+### Work item 4 — platform connection management (first slice, 2026-11-16)
+
+**Staging deployed first.** Migration `0005` applied, secrets supplied with
+`cf deploy --secrets-file .staging.vars` (git-ignored, mode 600; the config
+declares them required, so a deploy without them is refused). Staging reports
+`/api/setup` `needed: true`: no owner account exists there yet.
+
+**This slice.** `src/routes/accounts.ts`: `GET /api/social-accounts`,
+`DELETE /api/social-accounts/:id` (also mounted at `/api/v1/…`, session or
+Bearer). No create route: every account comes from a platform's own connect
+flow. Delete refuses with 409 when the account's posts have R2-backed media,
+because the cascade would orphan objects before the media lifecycle (item 6)
+exists. `src/routes/connect.ts`: `POST /api/bluesky/connect` (handle + app
+password, verified by `createSession`) and `POST /api/telegram/connect` (bot
+token + channel, verified by `getMe`/`getChat`); 10 s timeouts, 502 when the
+platform is unreachable. Single owner, so no plan limits. Verified locally:
+bad credentials rejected by the real Bluesky/Telegram APIs, list/delete on a
+seeded row, 404 for a missing id, 401 unauthenticated.
+
+**Remaining for item 4.** OAuth connect/callback flows (Mastodon, Facebook/
+Instagram, Threads, YouTube, TikTok, Pinterest, LinkedIn, X) on the Worker
+domain, token refresh/revocation (YouTube `revoke`), `needs_reconnect` marking
+(`lib/reconnect.js` equivalent), per-platform settings (Pinterest board,
+TikTok/YouTube options), and the platform enable/disable registry. Publish
+adapters stay with item 8.

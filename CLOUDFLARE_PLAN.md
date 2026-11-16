@@ -817,3 +817,21 @@ Bluesky post's counts were fetched and stored, and the summary aggregated
 Bluesky + Telegram rows with a Sydney timezone; unknown timezone falls back to
 UTC; 401 unauthenticated. Facebook/Instagram/Threads/YouTube metrics come with
 their adapters.
+
+### Work item 10 — admin operations, credential-free part (2026-11-16)
+
+`/api/admin/*` (404 to non-admins, like the Docker admin console):
+`GET /overview` — a `problems` list (scheduler silent >5 min or failed, overdue
+scheduled posts, posts mid-publish, posts in review, accounts needing
+reconnect, R2 use ≥80% of any hard cap, no owner yet) plus scheduler last run,
+post counts, R2 use against each cap with percentages, applied D1 migrations
+and the adapters that can publish; `GET /review` — posts awaiting manual
+review with the reason; `POST /posts/:id/resolve` with `retry` (publish again,
+new schedule revision), `mark_posted` (optionally with the platform id; also
+queues the next recurrence) or `mark_failed`. Verified locally with seeded
+review posts. Not done: weekly R2 export of D1 and restore (needs a
+least-privilege API token and your decision on where exports live — D1 Time
+Travel's 7-day restore is the only backup until then), a version/commit
+display, platform on/off switches (every platform without a connect flow here
+is already off), admin customer management (single owner), and the email
+alerts, which wait on Mailgun.

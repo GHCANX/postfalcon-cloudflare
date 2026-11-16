@@ -21,6 +21,7 @@ import { authRoutes } from "./routes/auth";
 import { connectRoutes } from "./routes/connect";
 import { mediaApi, publicMedia } from "./routes/media";
 import { postRoutes } from "./routes/posts";
+import { adminRoutes } from "./routes/admin";
 import { analyticsRoutes } from "./routes/analytics";
 import { webhookRoutes } from "./routes/webhooks";
 import { oauthRoutes } from "./routes/oauth";
@@ -68,6 +69,7 @@ app.route("/api/posts", postRoutes);
 app.route("/api/v1/posts", postRoutes);
 app.route("/api/v1/webhooks", webhookRoutes);
 app.route("/api/v1/analytics", analyticsRoutes);
+app.route("/api/admin", adminRoutes);
 app.route("/api/v1/social-accounts", accountRoutes);
 
 function log(event: string, fields: Record<string, unknown> = {}): void {

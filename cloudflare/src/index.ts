@@ -9,6 +9,7 @@ import {
   workflowInstanceId,
 } from "./lib/delivery";
 import { sweepUnreferencedMedia } from "./lib/media";
+import { purgeWebhookDeliveries } from "./lib/webhooks";
 import { purgeOAuthStates } from "./lib/oauth";
 import { purgeRateLimits } from "./lib/rate-limit";
 import { purgeExpiredSessions } from "./lib/sessions";
@@ -17,6 +18,7 @@ import { authRoutes } from "./routes/auth";
 import { connectRoutes } from "./routes/connect";
 import { mediaApi, publicMedia } from "./routes/media";
 import { postRoutes } from "./routes/posts";
+import { webhookRoutes } from "./routes/webhooks";
 import { oauthRoutes } from "./routes/oauth";
 import { ScheduledPostDelivery } from "./workflows/post-delivery";
 
@@ -60,6 +62,7 @@ app.route("/api/social-accounts", accountRoutes);
 app.route("/api/v1/media", mediaApi);
 app.route("/api/posts", postRoutes);
 app.route("/api/v1/posts", postRoutes);
+app.route("/api/v1/webhooks", webhookRoutes);
 app.route("/api/v1/social-accounts", accountRoutes);
 
 function log(event: string, fields: Record<string, unknown> = {}): void {
@@ -143,7 +146,7 @@ app.route("/uploads", publicMedia);
 
 /** Deletes ended sessions and old rate-limit windows. Runs every 15 minutes. */
 async function runMaintenance(env: Env): Promise<void> {
-  await Promise.all([purgeExpiredSessions(env.DB), purgeRateLimits(env.DB), purgeOAuthStates(env.DB),
+  await Promise.all([purgeExpiredSessions(env.DB), purgeRateLimits(env.DB), purgeOAuthStates(env.DB), purgeWebhookDeliveries(env.DB),
     sweepUnreferencedMedia(env.DB, env.MEDIA, env.R2_BUDGET)]);
 }
 

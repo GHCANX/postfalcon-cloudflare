@@ -766,3 +766,21 @@ series; a duplicate call creates nothing. Verified with a SQLite shim of D1 over
 all migrations: next occurrence, idempotence, media re-pointing, late-skip,
 `repeat_until`, cap, non-recurring, month clamp. The end-to-end path (publish →
 next occurrence) still needs a real publish to exercise.
+
+### Work item 12 — webhooks (2026-11-16)
+
+Migration `0010_webhook_deliveries.sql`. `/api/v1/webhooks` (GET, POST, DELETE,
+`GET /:id/deliveries` = last 50 attempts): https URLs only, no IP literals,
+localhost, single-label or internal suffixes, no credentials in the URL; at
+most 10 endpoints; the signing secret (`whsec_…`, HMAC-SHA-256 as
+`X-Postfalcon-Signature: sha256=…`) is returned once, at creation. Events:
+`post.published`, `post.failed` (the Docker app's two, the default) plus
+`post.review_required`, an addition so an ambiguous publish is not silent.
+Delivery is a durable Workflow step per endpoint after the outcome is recorded
+(`-v9`, 60-step cap): `X-Postfalcon-Delivery` is the stable instance+event key,
+8 s timeout, no redirects, up to 3 retries with exponential backoff for network
+errors, 5xx and 429 only (other 4xx are final); every attempt is stored and
+pruned after 30 days. Secrets are read inside the step, never kept in Workflow
+state, and a webhook failure never changes the post. Verified with a SQLite/fetch
+harness (signature, history, deleted endpoint, URL rules) and the CRUD routes
+locally. Not exercised: a real endpoint receiving a delivery from the Worker.

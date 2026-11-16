@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => {
       previewUrls: true,
       assets: {
         notFoundHandling: "404-page",
-        runWorkerFirst: ["/api/*", "/uploads/*", "/healthz"],
+        runWorkerFirst: ["/api/*", "/uploads/*", "/mcp", "/healthz"],
       },
       env: {
         APP_PROFILE: bindings.text("self-hosted-single-user"),

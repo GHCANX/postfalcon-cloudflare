@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { createMcpServer } from "./lib/mcp";
 import { type AppEnv, csrfProtection, requireConfiguredSecrets } from "./lib/auth";
 import {
   type DeliveryParams,
@@ -143,6 +145,38 @@ async function runReconciliation(
 }
 
 app.route("/uploads", publicMedia);
+
+// Remote MCP over Streamable HTTP, stateless, Bearer token only. A session
+// cookie is deliberately not accepted here: the endpoint allows any origin, so
+// cookie auth would let another site's page trigger tool calls.
+const MCP_CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Mcp-Protocol-Version",
+};
+app.options("/mcp", (context) => context.body(null, 204, MCP_CORS));
+app.all("/mcp", async (context) => {
+  for (const [name, value] of Object.entries(MCP_CORS)) context.header(name, value);
+  context.header("Cache-Control", "no-store");
+  const authorization = context.req.header("authorization") ?? "";
+  if (!authorization.startsWith("Bearer ")) return context.json({ error: "not authenticated" }, 401);
+  if (context.req.method !== "POST") return context.json({ error: "method_not_allowed", message: "This endpoint is stateless; send POST JSON-RPC requests." }, 405);
+  if (typeof context.env.SESSION_SECRET !== "string" || context.env.SESSION_SECRET.length < 32) return context.json({ error: "not_configured" }, 503);
+
+  const origin = new URL(context.req.url).origin;
+  const server = createMcpServer(async (path, init) =>
+    app.fetch(new Request(`${origin}${path}`, { ...init, headers: { ...(init?.headers as Record<string, string>), Authorization: authorization } }), context.env, context.executionCtx),
+  );
+  // A bad token would otherwise surface only when a tool runs; reject it up front.
+  const probe = await app.fetch(new Request(`${origin}/api/auth/me`, { headers: { Authorization: authorization } }), context.env, context.executionCtx);
+  if (!probe.ok) return context.json({ error: "not authenticated" }, 401);
+
+  const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+  await server.connect(transport);
+  const response = await transport.handleRequest(context.req.raw);
+  context.executionCtx.waitUntil(Promise.all([transport.close(), server.close()]).catch(() => undefined));
+  return response;
+});
 
 /** Deletes ended sessions and old rate-limit windows. Runs every 15 minutes. */
 async function runMaintenance(env: Env): Promise<void> {

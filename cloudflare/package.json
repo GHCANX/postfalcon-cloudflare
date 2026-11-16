@@ -17,8 +17,10 @@
     "d1:migrate:production": "cf d1 migrations apply postfalcon-production --dir migrations"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "bcryptjs": "^3.0.3",
-    "hono": "^4.11.0"
+    "hono": "^4.11.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "beta",

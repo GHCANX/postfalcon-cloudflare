@@ -784,3 +784,17 @@ pruned after 30 days. Secrets are read inside the step, never kept in Workflow
 state, and a webhook failure never changes the post. Verified with a SQLite/fetch
 harness (signature, history, deleted endpoint, URL rules) and the CRUD routes
 locally. Not exercised: a real endpoint receiving a delivery from the Worker.
+
+### Work item 13 — MCP (2026-11-16)
+
+`POST /mcp` (Streamable HTTP, stateless, JSON responses) using the SDK's
+web-standard transport, which runs on Workers. **Bearer token only**: a session
+cookie is refused because the endpoint is open-origin, so cookie auth would let
+another site trigger tool calls; the token is verified before any tool runs.
+`src/lib/mcp.ts` registers `list_accounts`, `list_posts`, `create_post`,
+`update_post`, `delete_post`; each dispatches **in-process** into this Worker's
+own `/api/v1` routes with the caller's token (no network subrequest, and the
+tools can never exceed what the token can do over REST). `get_analytics_summary`
+is deferred with item 11. Verified locally: 401 for no/cookie/bad token, 405 for
+GET, initialize, tools/list, list_accounts, create_post. Not verified: a real
+MCP client (Claude Code/Cursor) against staging.

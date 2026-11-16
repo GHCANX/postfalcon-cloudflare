@@ -11,6 +11,9 @@ import { blogDir, authorAvatarDir, listPosts, categories, filterByCategory } fro
 // (drafts, redirects, malformed frontmatter, duplicate slugs) be tested in isolation without
 // depending on — or being broken by — whatever real content currently exists.
 const FIXTURE_PREFIX = '__test-fixture-';
+// A minute ago: newer than any real post (so the fixture lands on /blog's first page) but not in
+// the future, since a future-dated post is held back like a draft.
+const justNow = () => new Date(Date.now() - 60_000).toISOString();
 const writtenFixtures = [];
 
 async function writeFixture(name, content) {
@@ -110,6 +113,17 @@ describe('blog', () => {
     expect(res.status).toBe(200);
   });
 
+  it('holds back a future-dated post until its date, like a draft', async () => {
+    await writeFixture(
+      'future',
+      ['---', 'title: Future', 'slug: __test-fixture-future', 'description: Later.', 'date: 2999-01-01', '---', '', 'Soon.'].join('\n')
+    );
+
+    expect((await listPosts()).some((p) => p.slug === '__test-fixture-future')).toBe(false);
+    expect((await request(app).get('/blog/__test-fixture-future')).status).toBe(404);
+    expect((await request(app).get('/sitemap.xml')).text).not.toContain('__test-fixture-future');
+  });
+
   it('keeps only the first post when two share a slug', async () => {
     await writeFixture(
       'dupe-a',
@@ -170,12 +184,12 @@ describe('blog', () => {
   });
 
   it('renders tag pills on the post and the index card', async () => {
-    // Dated far in the future so it always sorts onto page 1 of the index, regardless of how
+    // Dated a minute ago (the newest past date) so it always sorts onto page 1 of the index, regardless of how
     // much real content exists — the index assertion below needs the fixture on the page it
     // actually requests (the default, page 1).
     await writeFixture(
       'tagged',
-      ['---', 'title: Tagged Post', 'slug: __test-fixture-tagged', 'description: d.', 'date: 2099-01-01', 'tags: ["Guides", "Product"]', '---', '', 'Body.'].join(
+      ['---', 'title: Tagged Post', 'slug: __test-fixture-tagged', 'description: d.', `date: ${justNow()}`, 'tags: ["Guides", "Product"]', '---', '', 'Body.'].join(
         '\n'
       )
     );
@@ -225,11 +239,11 @@ describe('blog', () => {
   it('generates deterministic card art for posts with no explicit image', async () => {
     // Every real post currently sets `image:`, so this needs its own fixture rather than
     // relying on incidentally finding one among real content that happens to lack it.
-    // Dated far in the future so it sorts first and lands on /blog's first page regardless of
+    // Dated a minute ago (newest, but not future-dated, which would hide it) so it sorts first and lands on /blog's first page regardless of
     // how many real posts exist (listPosts() sorts newest-first, paginate()'s page size is 10).
     await writeFixture(
       'no-image',
-      ['---', 'title: "Fixture: No Image"', 'slug: __test-fixture-no-image', 'date: 2099-01-01', '---', '', 'Body.'].join(
+      ['---', 'title: "Fixture: No Image"', 'slug: __test-fixture-no-image', `date: ${justNow()}`, '---', '', 'Body.'].join(
         '\n'
       )
     );

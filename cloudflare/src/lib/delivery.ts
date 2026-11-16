@@ -1,6 +1,8 @@
 export type DeliveryParams = {
   postId: number;
   scheduledFor: number;
+  /** posts.schedule_revision when the instance was created. */
+  revision: number;
 };
 
 export type ScheduledPost = DeliveryParams & {
@@ -14,7 +16,7 @@ export type ClaimedPost = {
 };
 
 function workflowInstanceId(post: DeliveryParams): string {
-  return `post-${post.postId}-${post.scheduledFor}`;
+  return `post-${post.postId}-${post.scheduledFor}-${post.revision}`;
 }
 
 /**
@@ -31,11 +33,11 @@ export function parseDeliveryParams(input: unknown): DeliveryParams {
       throw new Error("Delivery workflow input is not valid JSON");
     }
   }
-  const { postId, scheduledFor } = (value ?? {}) as Partial<DeliveryParams>;
-  if (!Number.isSafeInteger(postId) || !Number.isSafeInteger(scheduledFor)) {
-    throw new Error("Delivery workflow input needs integer postId and scheduledFor");
+  const { postId, scheduledFor, revision = 0 } = (value ?? {}) as Partial<DeliveryParams>;
+  if (!Number.isSafeInteger(postId) || !Number.isSafeInteger(scheduledFor) || !Number.isSafeInteger(revision)) {
+    throw new Error("Delivery workflow input needs integer postId, scheduledFor and revision");
   }
-  return { postId: postId as number, scheduledFor: scheduledFor as number };
+  return { postId: postId as number, scheduledFor: scheduledFor as number, revision };
 }
 
 function deliveryLeaseToken(): string {
@@ -46,6 +48,7 @@ function requireDeliveryClaimValues(post: DeliveryParams, instanceId: string, no
   const values: Array<[string, unknown]> = [
     ["postId", post.postId],
     ["scheduledFor", post.scheduledFor],
+    ["revision", post.revision],
     ["workflowInstanceId", instanceId],
     ["now", now],
   ];
@@ -53,7 +56,7 @@ function requireDeliveryClaimValues(post: DeliveryParams, instanceId: string, no
   if (missing.length > 0) {
     throw new Error(`Invalid delivery claim parameters: ${missing.join(", ")}`);
   }
-  if (!Number.isSafeInteger(post.postId) || !Number.isSafeInteger(post.scheduledFor) || !Number.isSafeInteger(now)) {
+  if (!Number.isSafeInteger(post.postId) || !Number.isSafeInteger(post.scheduledFor) || !Number.isSafeInteger(post.revision) || !Number.isSafeInteger(now)) {
     throw new Error("Invalid delivery claim numeric parameters");
   }
   if (instanceId.length === 0) {
@@ -67,7 +70,8 @@ const LEASE_SECONDS = 300;
 export async function findUnboundScheduledPosts(database: D1Database, limit = 10): Promise<ScheduledPost[]> {
   const result = await database
     .prepare(
-      `SELECT id AS postId, scheduled_for AS scheduledFor, workflow_instance_id AS workflowInstanceId
+      `SELECT id AS postId, scheduled_for AS scheduledFor, schedule_revision AS revision,
+              workflow_instance_id AS workflowInstanceId
          FROM posts
         WHERE status = 'scheduled'
           AND scheduled_for IS NOT NULL
@@ -99,10 +103,11 @@ export async function recordWorkflowInstance(
         WHERE id = ?
           AND status = 'scheduled'
           AND scheduled_for = ?
+          AND schedule_revision = ?
           AND workflow_instance_id IS NULL
         RETURNING id`,
     )
-    .bind(instanceId, post.postId, post.scheduledFor)
+    .bind(instanceId, post.postId, post.scheduledFor, post.revision)
     .first<{ id: number }>();
   return result !== null;
 }
@@ -134,10 +139,11 @@ export async function claimPostForDelivery(
         WHERE id = ?
           AND status = 'scheduled'
           AND scheduled_for = ?
+          AND schedule_revision = ?
           AND scheduled_for <= ?
         RETURNING id AS postId`,
     )
-    .bind(instanceId, leaseToken, now + LEASE_SECONDS, now, now, post.postId, post.scheduledFor, now)
+    .bind(instanceId, leaseToken, now + LEASE_SECONDS, now, now, post.postId, post.scheduledFor, post.revision, now)
     .first<{ postId: number }>();
 
   if (!result) return null;

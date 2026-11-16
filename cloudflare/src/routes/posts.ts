@@ -343,7 +343,7 @@ postRoutes.patch("/:id", async (context) => {
   // Changing the time or status invalidates the Workflow instance bound to the
   // old schedule (its claim no longer matches), so the next reconciliation binds
   // a fresh one. A failed/review post going back to scheduled starts a new attempt.
-  if (reschedules) sets.push("workflow_instance_id = NULL");
+  if (reschedules) sets.push("workflow_instance_id = NULL", "schedule_revision = schedule_revision + 1");
 
   // Scheduling needs a time; the final state is checked against the row, not the request.
   const finalStatus = publishNow ? "scheduled" : (body.status as string | undefined) ?? current.status;

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 
 import { type AppEnv, csrfProtection, requireConfiguredSecrets } from "./lib/auth";
 import {
+  type DeliveryParams,
   findUnboundScheduledPosts,
   recordWorkflowInstance,
   releaseExpiredDeliveryLeases,
@@ -69,7 +70,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function ensurePostDeliveryWorkflows(env: Env, workflow: Workflow<{ postId: number; scheduledFor: number }>) {
+async function ensurePostDeliveryWorkflows(env: Env, workflow: Workflow<DeliveryParams>) {
   const unboundPosts = await findUnboundScheduledPosts(env.DB);
   let created = 0;
   let repaired = 0;
@@ -97,7 +98,7 @@ async function ensurePostDeliveryWorkflows(env: Env, workflow: Workflow<{ postId
 
 async function runReconciliation(
   env: Env,
-  workflow: Workflow<{ postId: number; scheduledFor: number }>,
+  workflow: Workflow<DeliveryParams>,
   scheduledFor: string,
 ): Promise<void> {
   const run = await env.DB.prepare(

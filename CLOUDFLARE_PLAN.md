@@ -741,3 +741,28 @@ references/sweep. Not verified: a real publish to any platform (needs real
 accounts); the failure emails (item 5, Mailgun); recurring next-occurrence
 creation (item 9). Posts to platforms with no adapter still end in
 `review_required`.
+
+### Work item 9 — recurring posts and the reschedule gap (2026-11-16)
+
+Migration `0009_schedule_revision.sql` adds `posts.schedule_revision`, bumped by
+PATCH whenever the time or status changes. The revision is part of the
+Workflow instance id (`post-<id>-<scheduledFor>-<revision>`), the instance
+params, `recordWorkflowInstance` and the claim, closing the gap noted under
+item 7: an older instance can no longer publish, or be reused for, a later
+schedule, even when a post returns to a previous time. Verified locally: a
+reschedule moved a post from `…-0` to `…-1`. Workflow definition is now `-v8`
+(`-v7` deleted).
+
+`src/lib/recurrence.ts` `scheduleNextOccurrence()` runs as its own idempotent
+Workflow step after a post is **published** (a failed or review post stops the
+series, as in Docker). It copies the post (content, platform options, group,
+repeat settings, `repeat_parent_id` = series root) with `scheduled_for` = the
+next interval and re-points the same media objects (no byte copies). Differences
+from Docker, deliberately: occurrences already in the past are skipped instead
+of published back to back after downtime (missed-schedule policy), intervals are
+UTC, and monthly clamps to the month's last day (Jan 31 → Feb 28; it does not
+snap back to the 31st afterwards). `repeat_until` and the one-year cap stop the
+series; a duplicate call creates nothing. Verified with a SQLite shim of D1 over
+all migrations: next occurrence, idempotence, media re-pointing, late-skip,
+`repeat_until`, cap, non-recurring, month clamp. The end-to-end path (publish →
+next occurrence) still needs a real publish to exercise.

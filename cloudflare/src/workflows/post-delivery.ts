@@ -7,6 +7,7 @@ import {
   parseDeliveryParams,
   workflowInstanceId,
 } from "../lib/delivery";
+import { scheduleNextOccurrence } from "../lib/recurrence";
 import { markFailed, markPublished, markPublishStarted, publishClaimedPost, requeueForRetry } from "../lib/publish";
 
 const MAX_ATTEMPTS = 3;
@@ -16,6 +17,7 @@ type Result =
   | { outcome: "skipped" | "published" | "failed" | "review_required" }
   | { outcome: "retry"; seconds: number };
 
+// Keep the instance id and claim tied to the schedule revision (see delivery.ts).
 export class ScheduledPostDelivery extends WorkflowEntrypoint<Env, DeliveryParams> {
   async run(event: WorkflowEvent<DeliveryParams>, step: WorkflowStep) {
     // Input is validated at the platform boundary: an instance created from the
@@ -78,6 +80,13 @@ export class ScheduledPostDelivery extends WorkflowEntrypoint<Env, DeliveryParam
         }
       });
 
+      if (result.outcome === "published") {
+        // Idempotent, so the engine may retry it; a failure here must not
+        // change the (already recorded) outcome of this post.
+        await step.do("queue next occurrence", async () => scheduleNextOccurrence(this.env.DB, params.postId)).catch((error: unknown) =>
+          console.error(JSON.stringify({ event: "next_occurrence_failed", postId: params.postId, error: String(error) })),
+        );
+      }
       if (result.outcome !== "retry") return result;
       await step.sleep(`back off ${attempt}`, result.seconds);
     }

@@ -7,11 +7,13 @@ import {
   releaseExpiredDeliveryLeases,
   workflowInstanceId,
 } from "./lib/delivery";
+import { purgeOAuthStates } from "./lib/oauth";
 import { purgeRateLimits } from "./lib/rate-limit";
 import { purgeExpiredSessions } from "./lib/sessions";
 import { accountRoutes } from "./routes/accounts";
 import { authRoutes } from "./routes/auth";
 import { connectRoutes } from "./routes/connect";
+import { oauthRoutes } from "./routes/oauth";
 import { ScheduledPostDelivery } from "./workflows/post-delivery";
 
 const app = new Hono<AppEnv>();
@@ -49,6 +51,7 @@ app.use("/api/*", async (context, next) => {
 app.use("/api/*", requireConfiguredSecrets, csrfProtection);
 app.route("/api", authRoutes);
 app.route("/api", connectRoutes);
+app.route("/api", oauthRoutes);
 app.route("/api/social-accounts", accountRoutes);
 app.route("/api/v1/social-accounts", accountRoutes);
 
@@ -131,7 +134,7 @@ async function runReconciliation(
 
 /** Deletes ended sessions and old rate-limit windows. Runs every 15 minutes. */
 async function runMaintenance(env: Env): Promise<void> {
-  await Promise.all([purgeExpiredSessions(env.DB), purgeRateLimits(env.DB)]);
+  await Promise.all([purgeExpiredSessions(env.DB), purgeRateLimits(env.DB), purgeOAuthStates(env.DB)]);
 }
 
 app.get("/healthz", async (context) => {

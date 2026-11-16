@@ -671,3 +671,28 @@ domain, token refresh/revocation (YouTube `revoke`), `needs_reconnect` marking
 (`lib/reconnect.js` equivalent), per-platform settings (Pinterest board,
 TikTok/YouTube options), and the platform enable/disable registry. Publish
 adapters stay with item 8.
+
+**Mastodon OAuth (2026-11-16).** Migration `0006_oauth_state.sql` (applied to
+staging) adds `oauth_states` (state stored only as SHA-256, bound to user and
+platform, 10-minute expiry, consumed with `DELETE … RETURNING` so it works
+once; purged by the 15-minute Cron) and `mastodon_apps.redirect_uri`.
+`src/lib/oauth.ts` (state helpers, `sanitizeUrl`), `src/lib/accounts.ts`
+(`upsertAccount`, reconnect keeps the row), `src/routes/oauth.ts`:
+`GET /api/mastodon/connect?instance=` registers a client per instance (and
+re-registers when the Worker origin changes, since a registration is valid for
+one redirect URI), `GET /api/mastodon/callback` verifies the state, exchanges
+the code, reads `verify_credentials`, stores the account, redirects to
+`/accounts`. The redirect URI comes from the request origin, so no domain is
+configured. IP-address and single-label hosts are rejected; outbound calls have
+a 10 s timeout and never follow redirects (Workers needs `redirect: "manual"`).
+Verified locally: invalid instance 400, bad state 400, connect redirects to
+mastodon.social with a fresh registration. The callback happy path needs a real
+authorization and is not exercised yet; there is no `/accounts` page on the
+Worker until the UI port.
+
+**Blocker for the other OAuth platforms.** Facebook/Instagram, Threads,
+YouTube, TikTok, Pinterest, LinkedIn and X each need a developer app's client
+id/secret supplied as Worker secrets (and a registered callback URL on the
+final domain). Since a deploy is refused while a declared secret is unset, they
+are deferred until those credentials exist; the code can be written against the
+Mastodon pattern at any time. Work continues on credential-free items (6, 7, 8).

@@ -153,6 +153,9 @@ export type AuthEventType =
   | "logout"
   | "signup"
   | "password_change"
+  | "password_reset_request"
+  | "password_reset_complete"
+  | "email_verified"
   | "api_token_created"
   | "api_token_revoked";
 

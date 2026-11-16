@@ -65,6 +65,25 @@ First sign-in on a fresh instance: `POST /api/setup` with
 `{setup_token, email, password}` (after fetching `GET /api/csrf-token`). It only
 works while the users table is empty; after that `/api/users` stays closed.
 
+## Email (Mailgun)
+
+Email is optional and off until configured. Set four values as ordinary Worker
+secrets (they are deliberately not declared in `cloudflare.config.ts`, so the
+instance deploys and runs without them, and a secret set this way survives later
+deploys):
+
+```sh
+cf workers secrets update MAILGUN_API_KEY --worker postfalcon-staging --type secret_text --text <key>
+cf workers secrets update MAILGUN_DOMAIN  --worker postfalcon-staging --type secret_text --text mg.example.com
+cf workers secrets update MAILGUN_FROM    --worker postfalcon-staging --type secret_text --text "Postfalcon <postfalcon@mg.example.com>"
+cf workers secrets update MAILGUN_REGION  --worker postfalcon-staging --type secret_text --text eu   # only for Mailgun's EU region
+```
+
+Then `POST /api/admin/test-email` sends one to the signed-in admin. Emails sent:
+password reset, email verification, "post needs review" and "reconnect this
+account". Every send is recorded (recipient, category, status; never the body)
+in `email_deliveries`.
+
 ## API surface (staging)
 
 All under `/api`, session cookie or `Authorization: Bearer pf_…`; state-changing
@@ -72,7 +91,10 @@ cookie requests need the `x-csrf-token` from `GET /api/csrf-token`.
 
 | Area | Routes |
 | --- | --- |
-| Identity | `POST /setup`, `POST /auth/login`, `/auth/logout`, `GET /auth/me`, `POST /auth/change-password`, `GET/POST/DELETE /auth/api-token` |
+| Identity | `POST /setup`, `POST /auth/login`, `/auth/logout`, `GET /auth/me`, `POST /auth/change-password`, `/auth/forgot-password`, `/auth/reset-password`, `GET /auth/verify-email`, `POST /auth/resend-verification`, `GET/POST/DELETE /auth/api-token` |
+| Admin | `GET /admin/overview`, `GET /admin/review`, `POST /admin/posts/:id/resolve`, `POST /admin/test-email` |
+| Webhooks | `GET/POST /v1/webhooks`, `DELETE /v1/webhooks/:id`, `GET /v1/webhooks/:id/deliveries` |
+| Analytics / MCP | `GET /v1/analytics/summary`, `POST /mcp` (Bearer only) |
 | Accounts | `GET /social-accounts`, `DELETE /social-accounts/:id`, `POST /bluesky/connect`, `POST /telegram/connect`, `GET /mastodon/connect?instance=` (+ callback) |
 | Media | `POST /v1/media` (raw image body, `Content-Type: image/*`, max 25 MiB), public `GET /uploads/<uuid>.<ext>` |
 | Posts | `GET/POST /v1/posts`, `GET/PATCH/DELETE /v1/posts/:id` (JSON; attach uploads with `media_ids`) |

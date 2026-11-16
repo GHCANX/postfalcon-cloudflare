@@ -168,7 +168,7 @@ export async function markPublished(database: D1Database, claim: ClaimedPost, pl
 }
 
 /** Definite failure: nothing was posted (or the platform refused it). */
-export async function markFailed(database: D1Database, claim: ClaimedPost, message: string, needsReconnect: boolean): Promise<void> {
+export async function markFailed(database: D1Database, claim: ClaimedPost, message: string, needsReconnect: boolean): Promise<{ newlyFlaggedAccountId: number | null }> {
   const settled = await settle(database, claim, {
     outcome: "failed",
     detail: message,
@@ -177,14 +177,18 @@ export async function markFailed(database: D1Database, claim: ClaimedPost, messa
   });
   if (!settled) throw new Error(`Lost delivery lease for post ${claim.postId}`);
   if (needsReconnect) {
-    await database
+    // RETURNING tells whether this call is the one that flagged the account, so
+    // the owner is emailed once rather than for every failed post.
+    const flagged = await database
       .prepare(
         `UPDATE social_accounts SET needs_reconnect_at = unixepoch(), reconnect_reason = ?
-          WHERE id = (SELECT social_account_id FROM posts WHERE id = ?) AND needs_reconnect_at IS NULL`,
+          WHERE id = (SELECT social_account_id FROM posts WHERE id = ?) AND needs_reconnect_at IS NULL RETURNING id`,
       )
       .bind(message.slice(0, 500), claim.postId)
-      .run();
+      .first<{ id: number }>();
+    return { newlyFlaggedAccountId: flagged?.id ?? null };
   }
+  return { newlyFlaggedAccountId: null };
 }
 
 /** Nothing was posted and the platform asked us to wait: back to scheduled for another claim. */

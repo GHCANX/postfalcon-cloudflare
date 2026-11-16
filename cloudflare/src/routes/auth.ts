@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 
+import { mailConfigured, sendMail } from "../lib/mailer";
 import { type AppEnv, authRateLimit, logAuthEvent, requireAuth } from "../lib/auth";
 import { hex, randomBytes, sha256Hex, timingSafeEqualStrings } from "../lib/crypto";
 import { issueCsrfToken } from "../lib/csrf";
@@ -18,8 +19,7 @@ import {
  * and JSON shapes follow the Docker app (routes/auth.js, routes/users.js) so
  * its browser code can be served unchanged later.
  *
- * Not ported yet: password reset and email verification (they need the
- * Mailgun work item), Google sign-in, and account deletion.
+ * Not ported yet: Google sign-in and account deletion.
  */
 const auth = new Hono<AppEnv>();
 
@@ -191,6 +191,93 @@ auth.post("/auth/change-password", requireAuth, authRateLimit, async (context) =
   await revokeOtherSessions(database, user.id, context.get("sessionTokenHash"));
   logAuthEvent(context, "password_change", { userId: user.id, email: user.email });
   return context.body(null, 204);
+});
+
+// --- Password reset and email verification ------------------------------
+// Links point at `${origin}/reset-password` and `/api/auth/verify-email`; the
+// reset page itself arrives with the UI port, and the API works without it.
+
+const RESET_TTL_SECONDS = 60 * 60;
+const VERIFY_TTL_SECONDS = 24 * 60 * 60;
+
+async function createUserToken(database: D1Database, userId: number, purpose: "password_reset" | "email_verification", ttlSeconds: number): Promise<string> {
+  const token = hex(randomBytes(32));
+  await database.batch([
+    // One live token per purpose: asking again invalidates the earlier link.
+    database.prepare("DELETE FROM user_tokens WHERE user_id = ? AND purpose = ?").bind(userId, purpose),
+    database
+      .prepare("INSERT INTO user_tokens (user_id, purpose, token_hash, expires_at) VALUES (?, ?, ?, unixepoch() + ?)")
+      .bind(userId, purpose, await sha256Hex(token), ttlSeconds),
+  ]);
+  return token;
+}
+
+async function consumeUserToken(database: D1Database, token: string, purpose: "password_reset" | "email_verification"): Promise<number | null> {
+  const row = await database
+    .prepare("DELETE FROM user_tokens WHERE token_hash = ? AND purpose = ? AND expires_at > unixepoch() RETURNING user_id")
+    .bind(await sha256Hex(token), purpose)
+    .first<{ user_id: number }>();
+  return row?.user_id ?? null;
+}
+
+auth.post("/auth/forgot-password", authRateLimit, async (context) => {
+  const body = await jsonBody(context.req.raw);
+  const email = parseEmail(body.email);
+  if (!email) return context.json(validationError("email", "A valid email address is required"), 400);
+
+  // Always 204, and the work happens after the response, so neither the status
+  // nor the timing says whether the address has an account.
+  context.executionCtx.waitUntil(
+    (async () => {
+      const user = await context.env.DB.prepare("SELECT id FROM users WHERE email = ? AND suspended_at IS NULL").bind(email).first<{ id: number }>();
+      logAuthEvent(context, "password_reset_request", { userId: user?.id ?? null, email });
+      if (!user || !mailConfigured(context.env)) return;
+      const token = await createUserToken(context.env.DB, user.id, "password_reset", RESET_TTL_SECONDS);
+      const link = `${new URL(context.req.url).origin}/reset-password?token=${token}`;
+      await sendMail(context.env, {
+        to: email,
+        subject: "Reset your Postfalcon password",
+        text: `Reset your password (the link works once, for one hour):\n${link}\n\nIf you didn't ask for this, ignore this email.`,
+        category: "password_reset",
+        userId: user.id,
+      });
+    })().catch((error: unknown) => console.error(JSON.stringify({ event: "forgot_password_failed", error: String(error) }))),
+  );
+  return context.body(null, 204);
+});
+
+auth.post("/auth/reset-password", authRateLimit, async (context) => {
+  const database = context.env.DB;
+  const body = await jsonBody(context.req.raw);
+  const token = typeof body.token === "string" ? body.token : "";
+  const password = parseNewPassword(body.password);
+  if (!password) return context.json(validationError("password", "Password must be 8 to 255 characters"), 400);
+  const userId = token ? await consumeUserToken(database, token, "password_reset") : null;
+  if (!userId) return context.json({ error: "invalid or expired token" }, 400);
+
+  const user = await database.prepare("UPDATE users SET password_hash = ? WHERE id = ? RETURNING email").bind(await hashPassword(password), userId).first<{ email: string }>();
+  // Everyone signed in with the old password is signed out.
+  await revokeOtherSessions(database, userId, null);
+  logAuthEvent(context, "password_reset_complete", { userId, email: user?.email ?? null });
+  return context.body(null, 204);
+});
+
+auth.get("/auth/verify-email", async (context) => {
+  const token = context.req.query("token");
+  const userId = token ? await consumeUserToken(context.env.DB, token, "email_verification") : null;
+  if (!userId) return context.text("Invalid or expired verification link.", 400);
+  const user = await context.env.DB.prepare("UPDATE users SET email_verified_at = unixepoch() WHERE id = ? RETURNING email").bind(userId).first<{ email: string }>();
+  logAuthEvent(context, "email_verified", { userId, email: user?.email ?? null });
+  return context.redirect("/login?verified=1");
+});
+
+auth.post("/auth/resend-verification", requireAuth, authRateLimit, async (context) => {
+  const user = context.get("user");
+  if (!mailConfigured(context.env)) return context.json({ error: "email_not_configured", message: "Email is not set up on this server." }, 503);
+  const token = await createUserToken(context.env.DB, user.id, "email_verification", VERIFY_TTL_SECONDS);
+  const link = `${new URL(context.req.url).origin}/api/auth/verify-email?token=${token}`;
+  const result = await sendMail(context.env, { to: user.email, subject: "Verify your Postfalcon email", text: `Verify your email:\n${link}`, category: "email_verification", userId: user.id });
+  return result.status === "sent" ? context.body(null, 204) : context.json({ error: "email_failed", message: "The email could not be sent." }, 502);
 });
 
 // --- API token -------------------------------------------------------------

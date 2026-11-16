@@ -2,6 +2,7 @@ import { Hono } from "hono";
 
 import { type AppEnv, requireAuth } from "../lib/auth";
 import { ADAPTERS } from "../platforms";
+import { mailConfigured, sendMail } from "../lib/mailer";
 import { scheduleNextOccurrence } from "../lib/recurrence";
 import { iso } from "./accounts";
 
@@ -93,9 +94,19 @@ adminRoutes.get("/overview", async (context) => {
       : null,
     migrations,
     publishing: { adapters: Object.keys(ADAPTERS) },
-    email: { configured: false, note: "Mailgun is not wired up yet; no failure emails are sent." },
+    email: mailConfigured(context.env)
+      ? { configured: true }
+      : { configured: false, note: "Set MAILGUN_API_KEY, MAILGUN_DOMAIN and MAILGUN_FROM (see README) to receive failure and review emails." },
     backups: { note: "D1 Time Travel keeps 7 days of point-in-time restore on the Free plan; scheduled R2 exports are not set up yet." },
   });
+});
+
+/** Sends one test email to the signed-in admin, to prove the Mailgun settings. */
+adminRoutes.post("/test-email", async (context) => {
+  const user = context.get("user");
+  if (!mailConfigured(context.env)) return context.json({ error: "email_not_configured" }, 503);
+  const result = await sendMail(context.env, { to: user.email, userId: user.id, category: "test", subject: "Postfalcon test email", text: "Mailgun is set up correctly." });
+  return result.status === "sent" ? context.json({ sent: true }) : context.json({ sent: false, error: result.error }, 502);
 });
 
 /** Posts that need a human: ambiguous publishes, and what the delivery audit recorded for each. */

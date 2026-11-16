@@ -7,6 +7,7 @@ import {
   parseDeliveryParams,
   workflowInstanceId,
 } from "../lib/delivery";
+import { adminRecipients, mailConfigured, sendMail } from "../lib/mailer";
 import { deliverWebhook, type WebhookEvent, webhookIdsFor } from "../lib/webhooks";
 import { refreshOne } from "../lib/metrics";
 import { scheduleNextOccurrence } from "../lib/recurrence";
@@ -16,7 +17,7 @@ const MAX_ATTEMPTS = 3;
 const DEFAULT_BACKOFF_SECONDS = [60, 300];
 
 type Result =
-  | { outcome: "skipped" | "published" | "failed" | "review_required" }
+  | { outcome: "skipped" | "published" | "failed" | "review_required"; reconnectAccountId?: number }
   | { outcome: "retry"; seconds: number };
 
 // Keep the instance id and claim tied to the schedule revision (see delivery.ts).
@@ -80,8 +81,10 @@ export class ScheduledPostDelivery extends WorkflowEntrypoint<Env, DeliveryParam
             await markFailed(this.env.DB, claim, `${published.message} (gave up after ${MAX_ATTEMPTS} attempts; nothing was posted)`, false);
             return { outcome: "failed" };
           case "auth":
-            await markFailed(this.env.DB, claim, published.message, true);
-            return { outcome: "failed" };
+            {
+              const { newlyFlaggedAccountId } = await markFailed(this.env.DB, claim, published.message, true);
+              return { outcome: "failed", ...(newlyFlaggedAccountId ? { reconnectAccountId: newlyFlaggedAccountId } : {}) };
+            }
           default:
             await markFailed(this.env.DB, claim, published.message, false);
             return { outcome: "failed" };
@@ -112,6 +115,11 @@ export class ScheduledPostDelivery extends WorkflowEntrypoint<Env, DeliveryParam
             return refreshOne(this.env.DB, { ...post, platform_post_id: post.platform_post_id });
           })
           .catch(() => undefined);
+      }
+      if (result.outcome === "review_required") {
+        await this.alert(step, params.postId, { kind: "review" });
+      } else if (result.outcome === "failed" && result.reconnectAccountId) {
+        await this.alert(step, params.postId, { kind: "reconnect", accountId: result.reconnectAccountId });
       }
       const event = WEBHOOK_EVENT_FOR[result.outcome];
       if (event) await this.notify(step, params, event);
@@ -165,6 +173,49 @@ export class ScheduledPostDelivery extends WorkflowEntrypoint<Env, DeliveryParam
       }
     } catch (error) {
       console.error(JSON.stringify({ event: "webhook_notify_failed", postId: params.postId, error: String(error) }));
+    }
+  }
+
+  /**
+   * Emails the owner(s) about something only a person can fix. Retried a couple
+   * of times for Mailgun/network errors; a send that still fails is recorded in
+   * email_deliveries and never changes the post.
+   */
+  private async alert(step: WorkflowStep, postId: number, what: { kind: "review" } | { kind: "reconnect"; accountId: number }): Promise<void> {
+    if (!mailConfigured(this.env)) return;
+    try {
+      await step.do(`email alert ${what.kind}`, { retries: { limit: 2, delay: "30 seconds", backoff: "exponential" } }, async () => {
+        const post = await this.env.DB
+          .prepare(
+            `SELECT posts.content, posts.review_reason, social_accounts.platform, social_accounts.display_name, social_accounts.reconnect_reason
+               FROM posts JOIN social_accounts ON social_accounts.id = posts.social_account_id WHERE posts.id = ?`,
+          )
+          .bind(postId)
+          .first<{ content: string; review_reason: string | null; platform: string; display_name: string; reconnect_reason: string | null }>();
+        if (!post) return "gone";
+        const preview = post.content.length > 120 ? `${post.content.slice(0, 120)}...` : post.content;
+        const message =
+          what.kind === "review"
+            ? {
+                category: "post_review_required",
+                subject: `Post #${postId} to ${post.display_name} needs review`,
+                text: `Post #${postId} to ${post.display_name} (${post.platform}) may or may not have been published, so it was not retried.\n\nReason: ${post.review_reason ?? "unknown"}\n\nPost: ${preview}\n\nCheck ${post.platform}, then resolve it with POST /api/admin/posts/${postId}/resolve (retry, mark_posted or mark_failed).`,
+              }
+            : {
+                category: "reconnect_account",
+                subject: `Reconnect ${post.display_name} (${post.platform}) to keep posting`,
+                text: `${post.platform} stopped accepting Postfalcon's access to ${post.display_name}. Scheduled posts to it will fail until you reconnect it.\n\nDetail: ${post.reconnect_reason ?? "unknown"}`,
+              };
+        let failure: string | null = null;
+        for (const admin of await adminRecipients(this.env.DB)) {
+          const result = await sendMail(this.env, { to: admin.email, userId: admin.id, ...message });
+          if (result.status === "failed") failure = result.error ?? "send failed";
+        }
+        if (failure) throw new Error(failure);
+        return "sent";
+      });
+    } catch (error) {
+      console.error(JSON.stringify({ event: "alert_email_failed", postId, error: String(error).slice(0, 300) }));
     }
   }
 }

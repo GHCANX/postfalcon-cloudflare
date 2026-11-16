@@ -835,3 +835,25 @@ Travel's 7-day restore is the only backup until then), a version/commit
 display, platform on/off switches (every platform without a connect flow here
 is already off), admin customer management (single owner), and the email
 alerts, which wait on Mailgun.
+
+### Work item 5 — Mailgun email (2026-11-16)
+
+`src/lib/mailer.ts`: Mailgun's HTTP API (US or EU host), one attempt per call,
+every send recorded in `email_deliveries` (recipient, category, status, Mailgun
+id; never the body). Not configured → nothing is sent and callers are told so.
+Configuration is four **undeclared** secrets (`MAILGUN_API_KEY`, `_DOMAIN`,
+`_FROM`, `_REGION`), set with `cf workers secrets update`: declared secrets are
+required at deploy time, so declaring them would force fake values; verified on
+staging that an undeclared secret survives a redeploy. Emails: password reset
+(`/auth/forgot-password` always answers 204 and does its work after the response
+so neither status nor timing reveals whether an address exists; one live token
+per purpose, 1 h, single use, resets sign out every session) and verification
+(`/auth/verify-email`, `/auth/resend-verification`); and, from the delivery
+Workflow (`-v11`), alerts to the admins when a post lands in `review_required`
+and, once per account, when a publish proves the credential is dead. Alerts are
+a retried step (2 retries); a failure there never changes the post.
+`POST /api/admin/test-email` proves the settings. Verified: sender against a
+stubbed Mailgun (hosts, auth, success/401/network, no body stored); reset,
+reuse, expiry-free paths, sign-out of old sessions, verification locally.
+**Not verified against real Mailgun** (no key). The reset link points at
+`/reset-password`, which has no page until the UI port.

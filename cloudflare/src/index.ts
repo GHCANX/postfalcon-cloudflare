@@ -22,6 +22,8 @@ import { authRoutes } from "./routes/auth";
 import { connectRoutes } from "./routes/connect";
 import { mediaApi, publicMedia } from "./routes/media";
 import { postRoutes } from "./routes/posts";
+import { notFoundPage, pageRoutes } from "./routes/pages";
+import { onboardingRoutes } from "./routes/onboarding";
 import { adminRoutes } from "./routes/admin";
 import { analyticsRoutes } from "./routes/analytics";
 import { webhookRoutes } from "./routes/webhooks";
@@ -71,6 +73,7 @@ app.route("/api/v1/posts", postRoutes);
 app.route("/api/v1/webhooks", webhookRoutes);
 app.route("/api/v1/analytics", analyticsRoutes);
 app.route("/api/admin", adminRoutes);
+app.route("/api/onboarding", onboardingRoutes);
 app.route("/api/v1/social-accounts", accountRoutes);
 
 function log(event: string, fields: Record<string, unknown> = {}): void {
@@ -213,7 +216,13 @@ app.get("/", (context) =>
 </html>`),
 );
 
-app.notFound((context) => context.json({ error: "not_found" }, 404));
+app.route("/", pageRoutes);
+
+app.notFound((context) => {
+  const path = new URL(context.req.url).pathname;
+  const wantsPage = context.req.method === "GET" && !path.startsWith("/api/") && !path.startsWith("/uploads/") && (context.req.header("accept") ?? "").includes("text/html");
+  return wantsPage ? notFoundPage(context) : context.json({ error: "not_found" }, 404);
+});
 
 app.onError((error, context) => {
   console.error(

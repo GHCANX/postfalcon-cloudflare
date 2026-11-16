@@ -100,6 +100,19 @@ async function authenticate(
   return { user: toUser(row), kind: "session", sessionTokenHash: session.tokenHash };
 }
 
+/** The signed-in user from the session cookie only (browser pages never accept a Bearer token). */
+export async function sessionUser(context: Context<AppEnv>): Promise<AuthUser | null> {
+  const secret = context.env.SESSION_SECRET;
+  if (typeof secret !== "string" || secret.length < 32) return null;
+  const session = await readSession(context.req.raw, context.env.DB, secret);
+  if (!session) return null;
+  const row = await context.env.DB
+    .prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ? AND suspended_at IS NULL`)
+    .bind(session.userId)
+    .first<UserRow>();
+  return row ? toUser(row) : null;
+}
+
 /** Rejects every /api request until the instance has a usable session secret. */
 export const requireConfiguredSecrets: MiddlewareHandler<AppEnv> = async (context, next) => {
   const secret = context.env.SESSION_SECRET;

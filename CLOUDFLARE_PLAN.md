@@ -867,3 +867,25 @@ so a fresh Workflow instance) once the month's counter has room — in practice
 after the UTC month rolls over. The admin overview lists held posts as a
 problem. Verified with a SQLite shim: held while exhausted, released in a new
 month.
+
+### Browser UI port, first slice (2026-11-16)
+
+The Docker app's own UI is reused, not rewritten: `cloudflare/scripts/build-ui.mjs`
+precompiles every `../views/*.ejs` to plain functions (`src/views/generated.ts`,
+git-ignored; EJS uses `new Function`, forbidden on Workers) and copies `../public`
+plus FullCalendar into `cloudflare/public/` (git-ignored; `overrides/public/*`
+replaces same-named files). Because ES modules are strict, templates are compiled
+without `with (locals)` and each template's free identifiers are declared from
+`locals` (`withoutWith`). `src/lib/views.ts` renders them; `src/routes/pages.ts`
+serves `/login`, `/forgot-password`, `/reset-password`, `/dashboard`, `/analytics`,
+`/accounts`, `/settings`, `/robots.txt` and an HTML 404; `/api/onboarding` backs the
+dashboard checklist. These paths are `runWorkerFirst`; other files are static assets.
+`typecheck` and `build` run `build:ui` first. Verified locally with `cf dev`: the
+auth pages and static files serve, `/dashboard` redirects when signed out.
+
+**Next:** first-run owner page. `/signup` should render only while `GET /api/setup`
+says `needed`, with an override `signup.js` that posts to `/api/setup` (the Docker
+script posts to `/api/users`, closed here). Then walk the signed-in pages
+(dashboard, accounts, settings, analytics) against local D1 and fix API-shape gaps;
+the composer's calendar/media paths (`/api/v1/media`, `/api/v1/posts`) are untested
+through the real front end. Not yet deployed to staging.

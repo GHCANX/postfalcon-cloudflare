@@ -19,8 +19,8 @@ export default defineConfig(({ mode }) => {
       workersDev: true,
       previewUrls: true,
       assets: {
-        notFoundHandling: "404-page",
-        runWorkerFirst: ["/api/*", "/uploads/*", "/mcp", "/healthz"],
+        notFoundHandling: "none",
+        runWorkerFirst: ["/", "/login", "/forgot-password", "/reset-password", "/dashboard", "/analytics", "/accounts", "/settings", "/robots.txt", "/api/*", "/uploads/*", "/mcp", "/healthz"],
       },
       env: {
         APP_PROFILE: bindings.text("self-hosted-single-user"),

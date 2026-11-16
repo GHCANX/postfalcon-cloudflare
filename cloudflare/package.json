@@ -7,24 +7,27 @@
     "node": ">=22.23.0"
   },
   "scripts": {
-    "dev": "cf dev --mode development",
-    "build": "cf build --mode staging",
-    "deploy:staging": "cf deploy --mode staging",
-    "deploy:production": "cf deploy --mode production",
+    "dev": "npm run build:ui && cf dev --mode development",
+    "build": "npm run build:ui && cf build --mode staging",
+    "deploy:staging": "npm run build:ui && cf deploy --mode staging",
+    "deploy:production": "npm run build:ui && cf deploy --mode production",
     "types": "cf workers types",
-    "typecheck": "npm run types && tsc --noEmit",
+    "typecheck": "npm run build:ui && npm run types && tsc --noEmit",
     "d1:migrate:staging": "cf d1 migrations apply 153ee2ab-906e-4dd9-a41c-52bfc4c8bbdc --dir migrations",
-    "d1:migrate:production": "cf d1 migrations apply postfalcon-production --dir migrations"
+    "d1:migrate:production": "cf d1 migrations apply postfalcon-production --dir migrations",
+    "build:ui": "node scripts/build-ui.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "bcryptjs": "^3.0.3",
+    "fullcalendar": "^6.1.22",
     "hono": "^4.11.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "beta",
     "cf": "^1.0.0-beta.13",
+    "ejs": "^3.1.10",
     "typescript": "^5.9.3",
     "vite": "^7.2.0"
   }

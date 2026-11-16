@@ -2,3 +2,5 @@
 .dev.vars
 node_modules/
 .staging.vars
+public/
+src/views/generated.ts

@@ -1,0 +1,3 @@
+# Reserved for the Mailgun and authenticated-session workstreams. Never commit
+# .dev.vars or production secrets. Until routes use them, no local secret is
+# required for the Cloudflare foundation.

@@ -223,8 +223,8 @@ mcp/server.js        ...over stdio, for clients that spawn a local process (Clau
                      Cursor's `command` config) — reads POSTFALCON_BASE_URL/POSTFALCON_API_TOKEN from
                      the environment.
 routes/mcp.js        ...over Streamable HTTP at POST /mcp, for clients that connect via a URL
-                     instead (ChatGPT, Claude.ai, Cursor's `url` config, or any other Streamable
-                     HTTP client) — a fresh McpServer + transport per request (stateless mode,
+                     instead (Claude Code, Cursor's `url` config — clients that let you set a
+                     header; ChatGPT/Claude.ai connectors need OAuth, not built yet) — a fresh McpServer + transport per request (stateless mode,
                      no session id), authenticated by the caller's own `Authorization: Bearer
                      pf_...` header (the same api_tokens a user generates for the REST API — no
                      separate MCP-specific token). Own CORS (origin '*', like /api/v1); not
@@ -455,6 +455,48 @@ These aren't enforced by a linter — follow them by hand so the codebase doesn'
 - **New color?** A CSS custom property with both a light default and a `[data-theme="dark"]` override.
 - **New external script?** Self-host it under `public/` (or `public/vendor/` via `copy-vendor.js`) — the CSP
   won't allow a CDN `<script src>` or inline script.
+
+## Cloudflare free-tier port (`cloudflare/`, in progress)
+
+A second, separate deployment path: Postfalcon as one self-hosted, single-owner instance on Cloudflare's free
+services. Started in Codex on 2026-11-16 and continued here. `CLOUDFLARE_PLAN.md` is the plan *and* the progress
+log: read its "Ordered implementation roadmap" and "Implementation progress" (the last section; its "Handoff state"
+note under Work item 1 is where work stopped) before touching `cloudflare/`, work the roadmap in order, and append a dated note there for
+every step. `cloudflare/README.md` is the operator guide. `conversation_from_gpt.md` is the raw Codex transcript,
+kept only for reference; everything that matters from it is in the plan and this section.
+
+- **Isolated.** Nothing under `cloudflare/` is imported by the Express app and nothing there replaces the Docker
+  runtime yet; the rules above (raw `pg` SQL, EJS, vanilla JS, vitest) describe the Docker app, not this
+  subproject, which is TypeScript + Hono on Workers. Don't edit the Docker app as part of the port.
+- **Stack decided:** Workers + Hono, D1 (SQLite) as the source of truth incl. sessions, R2 for media, Workflows for
+  scheduled delivery with a per-minute Cron Trigger as reconciliation, Mailgun's HTTP API for all email (no SMTP on
+  Workers). Deferred: video uploads, Stripe billing. Must stay at zero cost: no Containers, no Workers Paid.
+- **User's requirements:** downtime during the build is fine, but once live a scheduled post must not be lost to
+  downtime; R2 use is hard-capped in code so it can never bill (25 MiB/file, 7 GiB media, 8 GiB total, 100k Class A
+  / 1M Class B ops a month — `src/lib/r2-budget.ts`, fails closed); a publish that times out ambiguously is never
+  retried automatically — it goes to `review_required` plus an email alert for manual review.
+- **Tooling:** Cloudflare's `cf` CLI with a typed `cloudflare.config.ts` — not Wrangler, don't add a
+  `wrangler.toml`. It needs Node 22.23+; the system Node is 20, so prefix commands with
+  `PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH` (nvm has 24.x). `npm run typecheck` (generates binding types
+  first) and `npm run build` are local and safe. `cf` commands and flags changed a lot in the beta — check
+  `npx cf <cmd> --help` / `npx cf cli search "<what you want>"` rather than assuming Wrangler syntax.
+- **Cloudflare account:** `cf login` is an interactive browser sign-in the user does; the token is short-lived.
+  Staging exists: Worker `postfalcon-staging` (workers.dev), D1 `postfalcon-staging` (id in the config), R2 bucket
+  `postfalcon-staging-media`. No production resources exist and none get created before the staging rehearsal
+  passes. Deploying, applying D1 migrations and creating resources change the live account — say what you're
+  about to run. No account ids, domains or secrets in source; secrets are declared only when a route uses them.
+- **D1 migrations** live in `cloudflare/migrations/NNNN_name.sql` (own numbering, unrelated to `db/migrations/`),
+  never edited once applied to staging. Validate a new one against local `sqlite3` with the earlier ones first.
+- **Workflows gotchas found on staging:** a named Workflow keeps running the Worker code it was created with, so a
+  code change needs a new definition name (the `-vN` suffix in the config; retire old ones once drained); the Free
+  plan caps instance retention at 3 days; instance input arrives as `event.params` at runtime although the
+  generated types say `event.payload` (and as a JSON string when created from the CLI); D1's `meta.changes` counts
+  trigger-written rows too, so single-row checks on a table with a trigger use `RETURNING`. Instance ids are derived (`post-<id>-<scheduledFor>`), never read from the
+  event. Until platform adapters are ported, a claimed post ends in `review_required` — it must never report
+  "posted".
+- This checkout is not a git repository (Codex unpacked the upstream source, commit `fd3a797`, over the old
+  install directory, keeping its `.env`, `docker-compose.yml` and `Caddyfile`), so there's no diff or history to
+  lean on and nothing to commit here.
 
 ## Suggestion
 

@@ -53,10 +53,11 @@ export const instagram: PlatformAdapter = {
     if (items.length === 0) throw new PublishError("rejected", "Instagram requires an image attached to the post");
     const origin = post.env.PUBLIC_BASE_URL?.replace(/\/+$/, "");
     if (!origin) throw new PublishError("rejected", "PUBLIC_BASE_URL is not set, so Instagram cannot fetch the image from this server.");
-    // Instagram only takes JPEG. The Docker app converts other formats; this deployment has no image converter yet.
+    // Instagram only takes JPEG here. The Docker app converts other image formats and posts
+    // video; this deployment has no image converter and no Reels flow yet.
     const unsupported = items.find((item) => item.contentType !== "image/jpeg");
     if (unsupported) {
-      throw new PublishError("rejected", `Instagram only accepts JPEG images; this post has a ${unsupported.contentType} file. Re-attach it as a JPEG.`);
+      throw new PublishError("rejected", `Instagram posts from this server support JPEG images only; this post has a ${unsupported.contentType} file.`);
     }
 
     const token = post.accessToken;

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 
 import { type AppEnv, requireAuth } from "../lib/auth";
+import { isVideoType } from "../lib/media";
 import { storeImage } from "./media";
 import {
   MAX_CHANNELS_PER_POST,
@@ -259,9 +260,9 @@ postRoutes.post("/", async (context) => {
             return database
               .prepare(
                 `INSERT INTO post_media (post_id, url, media_type, content_type, byte_size, alt_text, position, media_file_id)
-                 VALUES (?, ?, 'image', ?, ?, ?, ?, ?)`,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
               )
-              .bind(post.id, `/uploads/${file.r2_key.replace(/^media\//, "")}`, file.content_type, file.byte_size, alt || null, position, file.id);
+              .bind(post.id, `/uploads/${file.r2_key.replace(/^media\//, "")}`, isVideoType(file.content_type) ? "video" : "image", file.content_type, file.byte_size, alt || null, position, file.id);
           }),
         );
       } catch (error) {

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 
 import { type AppEnv, requireAuth } from "../lib/auth";
-import { IMAGE_TYPES, newMediaName, parseMediaName, parseRange } from "../lib/media";
+import { MEDIA_TYPES, newMediaName, parseMediaName, parseRange } from "../lib/media";
 import { storeBoundedMedia, UploadRejectedError } from "../lib/r2-media";
 import { R2BudgetExceededError, releaseR2StorageReservation, reserveR2Budget } from "../lib/r2-budget";
 
@@ -17,7 +17,7 @@ export async function storeImage(env: AppEnv["Bindings"], userId: number, reques
   const contentType = contentTypeHeader.split(";")[0]!.trim().toLowerCase();
   const name = newMediaName(contentType);
   if (!name) {
-    return { ok: false, status: 415, body: { error: "unsupported_type", message: `Upload a ${Object.keys(IMAGE_TYPES).join(", ")} image.` } };
+    return { ok: false, status: 415, body: { error: "unsupported_type", message: `Upload one of: ${Object.keys(MEDIA_TYPES).join(", ")}.` } };
   }
 
   const key = `media/${name}`;
@@ -31,7 +31,7 @@ export async function storeImage(env: AppEnv["Bindings"], userId: number, reques
       return {
         ok: false,
         status: tooBig ? 413 : 507,
-        body: { error: tooBig ? "file_too_large" : "storage_limit_reached", message: tooBig ? "Images can be at most 25 MB." : "Media storage is full." },
+        body: { error: tooBig ? "file_too_large" : "storage_limit_reached", message: tooBig ? "Files can be at most 25 MB." : "Media storage is full." },
       };
     }
     if (error instanceof UploadRejectedError) return { ok: false, status: 400, body: { error: "invalid_upload", message: error.message } };

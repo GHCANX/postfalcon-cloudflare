@@ -941,3 +941,14 @@ and persists expiring tokens (revoked/400/401 -> `auth`, network/5xx -> `transie
 - Both appear on Accounts only once their secrets are set. Verified with a stubbed-fetch
   script (22 checks: request shapes, defaults, refresh, error classification) and
   typecheck. **Not verified against Meta or TikTok** (no developer apps yet).
+
+### Video uploads, first slice (2026-11-16)
+
+The composer let users attach video but the Worker rejected it (`unsupported_type`).
+`MEDIA_TYPES` now includes MP4, MOV and WebM; they take the same upload path and the same
+hard caps (25 MiB per file, existing R2 budgets), stored as `post_media.media_type='video'`.
+Public reads already support byte ranges, so previews seek. Per platform: Telegram sends
+`sendVideo` (and video in media groups); Bluesky rejects video with a clear message
+(needs its own video service flow); Instagram stays JPEG-only (no Reels flow); Mastodon is
+untried; TikTok can now receive an MP4 up to 25 MiB (its publish flow is untested live).
+Larger files and resumable multipart uploads remain a separately costed step.

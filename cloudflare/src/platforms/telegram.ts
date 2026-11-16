@@ -1,7 +1,10 @@
 import { type PlatformAdapter, finalCreateFetch, PublishError } from "./types";
 
 const API = "https://api.telegram.org";
-const EXTENSIONS: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" };
+const EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+  "video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm",
+};
 
 async function call(token: string, method: string, body: BodyInit, json: boolean): Promise<any> {
   const response = await finalCreateFetch(
@@ -32,17 +35,19 @@ export const telegram: PlatformAdapter = {
     if (media.length === 1) {
       const only = media[0]!;
       const isGif = only.contentType === "image/gif";
+      const isVideo = only.contentType.startsWith("video/");
       if (post.content) form.append("caption", post.content);
-      form.append(isGif ? "animation" : "photo", new Blob([await only.read()], { type: only.contentType }), `file.${EXTENSIONS[only.contentType] ?? "jpg"}`);
-      const result = await call(token, isGif ? "sendAnimation" : "sendPhoto", form, false);
+      const field = isVideo ? "video" : isGif ? "animation" : "photo";
+      form.append(field, new Blob([await only.read()], { type: only.contentType }), `file.${EXTENSIONS[only.contentType] ?? "jpg"}`);
+      const result = await call(token, isVideo ? "sendVideo" : isGif ? "sendAnimation" : "sendPhoto", form, false);
       return String(result.message_id);
     }
 
     form.append(
       "media",
       JSON.stringify(
-        media.map((_, index) => ({
-          type: "photo",
+        media.map((item, index) => ({
+          type: item.contentType.startsWith("video/") ? "video" : "photo",
           media: `attach://file${index}`,
           ...(index === 0 && post.content ? { caption: post.content } : {}),
         })),

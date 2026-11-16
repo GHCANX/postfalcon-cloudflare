@@ -37,6 +37,9 @@ export function detectFacets(text: string): Facet[] {
 
 export const bluesky: PlatformAdapter = {
   async publish(post) {
+    if (post.media.some((item) => item.contentType.startsWith("video/"))) {
+      throw new PublishError("rejected", "Bluesky video posts aren't supported from this server yet; attach images instead.");
+    }
     // Sessions are short-lived, so log in fresh for every publish with the
     // stored app password and the DID saved at connect time.
     const login = await preStepFetch(

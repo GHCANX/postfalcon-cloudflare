@@ -1,26 +1,37 @@
 import { releaseR2StorageReservation, reserveR2Budget, type R2Budget } from "./r2-budget";
 
-// Images only for now; video needs its own size and platform handling (plan item 6).
 export const IMAGE_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
   "image/gif": "gif",
 };
-const EXTENSION_TYPES = Object.fromEntries(Object.entries(IMAGE_TYPES).map(([type, ext]) => [ext, type]));
+// Video shares the image path and the same hard size caps (25 MiB per file), so only
+// short clips fit. Larger files and resumable uploads are a later, separately costed step.
+export const VIDEO_TYPES: Record<string, string> = {
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+};
+export const MEDIA_TYPES: Record<string, string> = { ...IMAGE_TYPES, ...VIDEO_TYPES };
+const EXTENSION_TYPES = Object.fromEntries(Object.entries(MEDIA_TYPES).map(([type, ext]) => [ext, type]));
+
+export function isVideoType(contentType: string): boolean {
+  return contentType in VIDEO_TYPES;
+}
 
 /** An unreferenced object is kept this long, so an upload can be attached to a post. */
 const ORPHAN_GRACE_SECONDS = 24 * 60 * 60;
 const SWEEP_BATCH = 10;
 
 export function newMediaName(contentType: string): string | null {
-  const extension = IMAGE_TYPES[contentType];
+  const extension = MEDIA_TYPES[contentType];
   return extension ? `${crypto.randomUUID()}.${extension}` : null;
 }
 
 /** Validates a public name and maps it to its object key and content type. */
 export function parseMediaName(name: string): { key: string; contentType: string } | null {
-  const match = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(jpg|png|webp|gif)$/.exec(name);
+  const match = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(jpg|png|webp|gif|mp4|mov|webm)$/.exec(name);
   if (!match) return null;
   return { key: `media/${name}`, contentType: EXTENSION_TYPES[match[2]!]! };
 }

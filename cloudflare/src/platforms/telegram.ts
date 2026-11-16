@@ -23,6 +23,10 @@ export const telegram: PlatformAdapter = {
     if (!chatId) throw new PublishError("rejected", "Telegram account is missing its channel/chat id");
     const token = post.accessToken;
     const media = post.media.slice(0, 10);
+    // The Bot API refuses uploads over 50 MB.
+    if (media.some((item) => item.size > 50 * 1024 * 1024)) {
+      throw new PublishError("rejected", "Telegram bots can send files up to 50 MB; attach a smaller file.");
+    }
 
     // Each branch is a single request, so nothing can half-succeed.
     if (media.length === 0) {

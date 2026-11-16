@@ -57,7 +57,7 @@ async function multipartBody(context: Context<AppEnv>): Promise<Record<string, u
       if (key === "media") files.push(value);
       continue;
     }
-    if (key === "social_account_ids") body.social_account_ids = [...((body.social_account_ids as string[] | undefined) ?? []), value];
+    if (key === "social_account_ids" || key === "media_ids") body[key] = [...((body[key] as string[] | undefined) ?? []), value];
     else if (key === "publish_now") body.publish_now = value === "true" ? true : value === "false" ? false : value;
     else if (JSON_FIELDS.includes(key)) {
       try {
@@ -81,7 +81,8 @@ async function multipartBody(context: Context<AppEnv>): Promise<Record<string, u
     if (!result.ok) return context.json(result.body, result.status);
     ids.push(result.image.id);
   }
-  if (ids.length > 0) body.media_ids = ids;
+  // Files uploaded in chunks arrive as `media_ids`; any inline files follow them.
+  if (ids.length > 0) body.media_ids = [...((body.media_ids as unknown[] | undefined) ?? []), ...ids];
   return body;
 }
 

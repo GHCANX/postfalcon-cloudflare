@@ -16,6 +16,40 @@ export const VIDEO_TYPES: Record<string, string> = {
 export const MEDIA_TYPES: Record<string, string> = { ...IMAGE_TYPES, ...VIDEO_TYPES };
 const EXTENSION_TYPES = Object.fromEntries(Object.entries(MEDIA_TYPES).map(([type, ext]) => [ext, type]));
 
+/** Chunked uploads use fixed parts (R2 needs equal parts but the last). Each PUT stays well under the 100 MB request limit. */
+export const UPLOAD_PART_BYTES = 32 * 1024 * 1024;
+/** A chunked upload nobody finished is aborted after this long. */
+const STALE_UPLOAD_SECONDS = 24 * 60 * 60;
+
+export type UploadRow = {
+  id: string;
+  user_id: number;
+  r2_key: string;
+  upload_id: string;
+  content_type: string;
+  byte_size: number;
+  part_size: number;
+  parts_json: string;
+};
+
+/** Aborts a chunked upload in R2 and gives its reserved storage back. */
+export async function abortUpload(env: Env, row: Pick<UploadRow, "id" | "r2_key" | "upload_id" | "byte_size">): Promise<void> {
+  await reserveR2Budget(env.DB, env.R2_BUDGET, { classAOperations: 1 });
+  await env.MEDIA.resumeMultipartUpload(row.r2_key, row.upload_id).abort().catch(() => undefined);
+  const removed = await env.DB.prepare("DELETE FROM media_uploads WHERE id = ? RETURNING id").bind(row.id).first();
+  if (removed) await releaseR2StorageReservation(env.DB, { mediaBytes: row.byte_size, totalBytes: row.byte_size });
+}
+
+/** Aborts abandoned chunked uploads (bounded per run). */
+export async function sweepStaleUploads(env: Env, now = Math.floor(Date.now() / 1000)): Promise<number> {
+  const { results } = await env.DB
+    .prepare("SELECT id, r2_key, upload_id, byte_size FROM media_uploads WHERE created_at < ? ORDER BY created_at LIMIT ?")
+    .bind(now - STALE_UPLOAD_SECONDS, SWEEP_BATCH)
+    .all<Pick<UploadRow, "id" | "r2_key" | "upload_id" | "byte_size">>();
+  for (const row of results) await abortUpload(env, row);
+  return results.length;
+}
+
 export function isVideoType(contentType: string): boolean {
   return contentType in VIDEO_TYPES;
 }

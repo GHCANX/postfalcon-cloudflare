@@ -952,3 +952,11 @@ Public reads already support byte ranges, so previews seek. Per platform: Telegr
 (needs its own video service flow); Instagram stays JPEG-only (no Reels flow); Mastodon is
 untried; TikTok can now receive an MP4 up to 25 MiB (its publish flow is untested live).
 Larger files and resumable multipart uploads remain a separately costed step.
+
+### 300 MB video uploads and admin pages: handoff (2026-11-16)
+
+Chunked-upload groundwork is committed but unexercised (R2 multipart API under
+`/api/v1/media/uploads`, migration 0011, ranged reads for publishing, 300 MiB object cap with
+a 25 MiB single-request cap). Remaining work and the admin-page port, in order, are written
+step by step in `cloudflare/HANDOFF_VIDEO_AND_ADMIN.md`. Nothing from this slice is deployed;
+migration 0011 must be applied to staging before the next deploy.

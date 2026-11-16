@@ -10,7 +10,7 @@ import {
   releaseExpiredDeliveryLeases,
   workflowInstanceId,
 } from "./lib/delivery";
-import { sweepUnreferencedMedia } from "./lib/media";
+import { sweepStaleUploads, sweepUnreferencedMedia } from "./lib/media";
 import { purgeWebhookDeliveries } from "./lib/webhooks";
 import { refreshPostMetrics } from "./lib/metrics";
 import { resumeBudgetHolds } from "./lib/publish";
@@ -196,6 +196,7 @@ app.all("/mcp", async (context) => {
 async function runMaintenance(env: Env): Promise<void> {
   await Promise.all([purgeExpiredSessions(env.DB), purgeRateLimits(env.DB), purgeOAuthStates(env.DB), purgeWebhookDeliveries(env.DB),
     sweepUnreferencedMedia(env.DB, env.MEDIA, env.R2_BUDGET),
+    sweepStaleUploads(env),
     resumeBudgetHolds(env.DB, env.R2_BUDGET.maxClassBOperationsPerMonth)]);
 }
 

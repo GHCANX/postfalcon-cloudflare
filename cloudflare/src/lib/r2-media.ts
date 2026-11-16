@@ -34,7 +34,7 @@ function cappedBody(body: ReadableStream<Uint8Array>, maximumBytes: number, decl
     transform(chunk, controller) {
       received += chunk.byteLength;
       if (received > maximumBytes) {
-        controller.error(new UploadRejectedError("Upload exceeds the configured 25 MB limit"));
+        controller.error(new UploadRejectedError("Upload exceeds the single-request limit"));
         return;
       }
       controller.enqueue(chunk);
@@ -67,7 +67,7 @@ export async function storeBoundedMedia(
   }
 
   const declaredBytes = parseContentLength(request);
-  if (declaredBytes > budget.maxObjectBytes) {
+  if (declaredBytes > budget.maxDirectUploadBytes) {
     throw new R2BudgetExceededError("object");
   }
 
@@ -79,7 +79,7 @@ export async function storeBoundedMedia(
     totalBytes: declaredBytes,
   });
 
-  const capped = cappedBody(request.body, budget.maxObjectBytes, declaredBytes);
+  const capped = cappedBody(request.body, budget.maxDirectUploadBytes, declaredBytes);
   try {
     await bucket.put(upload.key, capped.body, {
       httpMetadata: { contentType: upload.contentType },

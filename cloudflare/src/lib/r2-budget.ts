@@ -1,5 +1,8 @@
 export type R2Budget = {
+  /** Largest single object (a chunked upload may reach this). */
   maxObjectBytes: number;
+  /** Largest object accepted in one request body. */
+  maxDirectUploadBytes: number;
   maxMediaBytes: number;
   maxTotalBytes: number;
   maxClassAOperationsPerMonth: number;

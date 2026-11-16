@@ -4,9 +4,16 @@ import { type PlatformAdapter, type PublishPost, PublishError, failPreStep, preS
 export const TIKTOK_API = "https://open.tiktokapis.com";
 const POLL_INTERVAL_MS = 3000;
 const POLL_MAX_ATTEMPTS = 20;
-// One chunk covers any video this deployment can store (media is capped at 25 MiB);
-// TikTok allows a single chunk up to 64 MiB.
-const MAX_SINGLE_CHUNK_BYTES = 64 * 1024 * 1024;
+// Per TikTok's media transfer guide: chunks are 5-64 MB, uploaded one after another, at most
+// 1000; the last chunk absorbs the remainder (up to 128 MB). Up to 64 MiB goes as one chunk;
+// larger files use 16 MiB chunks read from R2 one range at a time, so memory stays small.
+const SINGLE_CHUNK_MAX_BYTES = 64 * 1024 * 1024;
+const CHUNK_BYTES = 16 * 1024 * 1024;
+
+function planChunks(size: number): { chunkSize: number; count: number } {
+  if (size <= SINGLE_CHUNK_MAX_BYTES) return { chunkSize: size, count: 1 };
+  return { chunkSize: CHUNK_BYTES, count: Math.floor(size / CHUNK_BYTES) };
+}
 
 export function tiktokRefreshRequest(env: Env) {
   return {
@@ -84,16 +91,15 @@ export const tiktok: PlatformAdapter = {
     }
     const postInfo = resolvePostInfo(post, creatorInfo);
 
-    const bytes = await video.read();
-    const size = bytes.byteLength;
-    if (size > MAX_SINGLE_CHUNK_BYTES) throw new PublishError("rejected", "The video is too large for a single TikTok upload.");
+    const size = video.size;
+    const { chunkSize, count } = planChunks(size);
 
     const init = await preStepFetch(
       `${TIKTOK_API}/v2/post/publish/video/init/`,
       {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ post_info: postInfo, source_info: { source: "FILE_UPLOAD", video_size: size, chunk_size: size, total_chunk_count: 1 } }),
+        body: JSON.stringify({ post_info: postInfo, source_info: { source: "FILE_UPLOAD", video_size: size, chunk_size: chunkSize, total_chunk_count: count } }),
       },
       "TikTok publish init",
     );
@@ -103,12 +109,17 @@ export const tiktok: PlatformAdapter = {
     }
     const { publish_id: publishId, upload_url: uploadUrl } = initData.data;
 
-    const upload = await preStepFetch(
-      uploadUrl,
-      { method: "PUT", headers: { "Content-Type": video.contentType, "Content-Range": `bytes 0-${size - 1}/${size}` }, body: bytes },
-      "TikTok video upload",
-    );
-    if (!upload.ok) await failPreStep(upload, "TikTok video upload");
+    for (let index = 0; index < count; index += 1) {
+      const first = index * chunkSize;
+      const last = index === count - 1 ? size - 1 : first + chunkSize - 1;
+      const chunk = count === 1 ? await video.read() : await video.readRange(first, last - first + 1);
+      const upload = await preStepFetch(
+        uploadUrl,
+        { method: "PUT", headers: { "Content-Type": video.contentType, "Content-Range": `bytes ${first}-${last}/${size}` }, body: chunk },
+        `TikTok video upload (chunk ${index + 1}/${count})`,
+      );
+      if (!upload.ok) await failPreStep(upload, `TikTok video upload (chunk ${index + 1}/${count})`);
+    }
 
     for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt += 1) {
       const response = await readFetch(`${TIKTOK_API}/v2/post/publish/status/fetch/`, {

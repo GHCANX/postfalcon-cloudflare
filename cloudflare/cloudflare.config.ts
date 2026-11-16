@@ -33,7 +33,9 @@ export default defineConfig(({ mode }) => {
         SETUP_TOKEN: bindings.secret(),
         MEDIA: bindings.r2({ name: `postfalcon-${suffix}-media` }),
         R2_BUDGET: bindings.json({
-          maxObjectBytes: 25 * 1024 * 1024,
+          // One file, uploaded in chunks (R2 multipart). Images and any single-request upload stay under maxDirectUploadBytes.
+          maxObjectBytes: 300 * 1024 * 1024,
+          maxDirectUploadBytes: 25 * 1024 * 1024,
           maxMediaBytes: 7 * 1024 * 1024 * 1024,
           maxTotalBytes: 8 * 1024 * 1024 * 1024,
           maxClassAOperationsPerMonth: 100_000,

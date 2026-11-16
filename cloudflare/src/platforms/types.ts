@@ -31,8 +31,12 @@ export type PublishMedia = {
   path: string;
   contentType: string;
   altText: string | null;
-  /** Reads the stored bytes (budgeted against R2 Class B operations). */
+  /** Stored size in bytes. */
+  size: number;
+  /** Reads the whole file (budgeted against R2 Class B operations). Refuses files too large to hold in memory. */
   read: () => Promise<ArrayBuffer>;
+  /** Reads one byte range, for platforms that upload in chunks (one Class B operation per call). */
+  readRange: (offset: number, length: number) => Promise<ArrayBuffer>;
 };
 
 export type PublishPost = {

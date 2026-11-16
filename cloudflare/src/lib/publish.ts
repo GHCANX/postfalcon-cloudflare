@@ -18,6 +18,9 @@ type PublishRow = {
   metadata_json: string;
 };
 
+/** Largest file read whole into memory. */
+const MAX_IN_MEMORY_BYTES = 64 * 1024 * 1024;
+
 export type PublishOutcome =
   | { kind: "published"; platformPostId: string }
   | { kind: "no_adapter"; platform: string }
@@ -62,27 +65,41 @@ export async function publishClaimedPost(env: Env, claim: ClaimedPost): Promise<
 
   const { results: files } = await env.DB
     .prepare(
-      `SELECT post_media.alt_text, media_files.r2_key, media_files.content_type
+      `SELECT post_media.alt_text, media_files.r2_key, media_files.content_type, media_files.byte_size
          FROM post_media JOIN media_files ON media_files.id = post_media.media_file_id
         WHERE post_media.post_id = ? ORDER BY post_media.position, post_media.id`,
     )
     .bind(claim.postId)
-    .all<{ alt_text: string | null; r2_key: string; content_type: string }>();
+    .all<{ alt_text: string | null; r2_key: string; content_type: string; byte_size: number }>();
 
+  const reserveRead = async () => {
+    try {
+      await reserveR2Budget(env.DB, env.R2_BUDGET, { classBOperations: 1 });
+    } catch (error) {
+      if (error instanceof R2BudgetExceededError) throw new PublishError("budget", "Media reads are paused by the R2 budget guard.");
+      throw error;
+    }
+  };
   const media: PublishMedia[] = files.map((file) => ({
     path: file.r2_key.replace(/^media\//, ""),
     contentType: file.content_type,
     altText: file.alt_text,
+    size: file.byte_size,
     read: async () => {
-      try {
-        await reserveR2Budget(env.DB, env.R2_BUDGET, { classBOperations: 1 });
-      } catch (error) {
-        if (error instanceof R2BudgetExceededError) throw new PublishError("budget", "Media reads are paused by the R2 budget guard.");
-        throw error;
+      // A Worker holds about 128 MB; a whole large video would not fit alongside the request.
+      if (file.byte_size > MAX_IN_MEMORY_BYTES) {
+        throw new PublishError("rejected", `This ${Math.round(file.byte_size / 1048576)} MB file is too large to send to this platform from this server.`);
       }
+      await reserveRead();
       const object = await env.MEDIA.get(file.r2_key);
       if (!object) throw new PublishError("rejected", "An attached media file is missing from storage.");
       return object.arrayBuffer();
+    },
+    readRange: async (offset, length) => {
+      await reserveRead();
+      const object = await env.MEDIA.get(file.r2_key, { range: { offset, length } });
+      if (!object) throw new PublishError("rejected", "An attached media file is missing from storage.");
+      return (object as R2ObjectBody).arrayBuffer();
     },
   }));
 

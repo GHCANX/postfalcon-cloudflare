@@ -1,3 +1,4 @@
 .cloudflare/
 .dev.vars
 node_modules/
+.staging.vars

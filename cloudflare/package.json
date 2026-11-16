@@ -13,7 +13,7 @@
     "deploy:production": "cf deploy --mode production",
     "types": "cf workers types",
     "typecheck": "npm run types && tsc --noEmit",
-    "d1:migrate:staging": "cf d1 migrations apply postfalcon-staging --dir migrations",
+    "d1:migrate:staging": "cf d1 migrations apply 153ee2ab-906e-4dd9-a41c-52bfc4c8bbdc --dir migrations",
     "d1:migrate:production": "cf d1 migrations apply postfalcon-production --dir migrations"
   },
   "dependencies": {

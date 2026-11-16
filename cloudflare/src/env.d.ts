@@ -12,4 +12,14 @@ interface Env {
   MAILGUN_FROM?: string;
   /** "eu" for Mailgun's EU region; anything else uses the US API. */
   MAILGUN_REGION?: string;
+  /** Meta (Facebook Login) app id and secret: needed to connect Instagram. */
+  FACEBOOK_APP_ID?: string;
+  FACEBOOK_APP_SECRET?: string;
+  /** Login configuration id, for a Business-type Meta app (used instead of a scope list). */
+  FACEBOOK_CONFIG_ID?: string;
+  /** TikTok app (Login Kit + Content Posting API) client key and secret. */
+  TIKTOK_CLIENT_KEY?: string;
+  TIKTOK_CLIENT_SECRET?: string;
+  /** Public origin of this Worker, e.g. https://example.com. Instagram fetches media from `<origin>/uploads/...`. */
+  PUBLIC_BASE_URL?: string;
 }

@@ -84,6 +84,28 @@ password reset, email verification, "post needs review" and "reconnect this
 account". Every send is recorded (recipient, category, status; never the body)
 in `email_deliveries`.
 
+## Instagram and TikTok
+
+Both are off until their developer-app credentials exist (the Accounts page only
+offers a platform whose secrets are set). Same mechanism as Mailgun: undeclared
+secrets set with `cf workers secrets update <NAME> --worker <worker> --type secret_text --text <value>`.
+
+| Platform | Secrets | Redirect URI to register |
+| --- | --- | --- |
+| Instagram (via Facebook Login) | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, optionally `FACEBOOK_CONFIG_ID` (Business-type Meta app), and `PUBLIC_BASE_URL` | `<origin>/api/facebook/callback` |
+| TikTok | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | `<origin>/api/tiktok/callback` |
+
+- **Instagram** needs an Instagram business account linked to a Facebook Page.
+  Instagram downloads each image from `<PUBLIC_BASE_URL>/uploads/<name>`, so set
+  `PUBLIC_BASE_URL` to the Worker's public origin (no trailing path). Only JPEG
+  images are accepted: the Docker app converts other formats with `sharp`, which
+  Workers cannot run, so a PNG/WebP/GIF post fails with a clear message. Image
+  ratio limits (4:5 to 1.91:1) are enforced by Instagram, not adjusted here.
+- **TikTok** posts video only, and this deployment cannot upload video yet, so a
+  TikTok post fails with "needs a video attached". Connecting, token refresh, the
+  composer's creator-info panel and the publish flow are in place. Until the
+  app passes TikTok's Direct Post audit, posts can only be private.
+
 ## API surface (staging)
 
 All under `/api`, session cookie or `Authorization: Bearer pf_…`; state-changing

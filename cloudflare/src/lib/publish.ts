@@ -1,6 +1,7 @@
 import { ADAPTERS } from "../platforms";
 import { PublishError, type PublishFailureKind, type PublishMedia, type PublishPost } from "../platforms/types";
 import type { ClaimedPost } from "./delivery";
+import { saveAccountTokens } from "./oauth-refresh";
 import { R2BudgetExceededError, reserveR2Budget } from "./r2-budget";
 
 type PublishRow = {
@@ -11,6 +12,8 @@ type PublishRow = {
   social_account_id: number;
   platform: string;
   access_token: string | null;
+  refresh_token: string | null;
+  token_expires_at: number | null;
   external_account_id: string | null;
   metadata_json: string;
 };
@@ -43,7 +46,8 @@ export async function publishClaimedPost(env: Env, claim: ClaimedPost): Promise<
   const row = await env.DB
     .prepare(
       `SELECT posts.id, posts.scheduled_for, posts.content, posts.platform_options_json, posts.social_account_id,
-              social_accounts.platform, social_accounts.access_token, social_accounts.external_account_id,
+              social_accounts.platform, social_accounts.access_token, social_accounts.refresh_token,
+              social_accounts.token_expires_at, social_accounts.external_account_id,
               social_accounts.metadata_json
          FROM posts JOIN social_accounts ON social_accounts.id = posts.social_account_id
         WHERE posts.id = ?`,
@@ -66,6 +70,7 @@ export async function publishClaimedPost(env: Env, claim: ClaimedPost): Promise<
     .all<{ alt_text: string | null; r2_key: string; content_type: string }>();
 
   const media: PublishMedia[] = files.map((file) => ({
+    path: file.r2_key.replace(/^media\//, ""),
     contentType: file.content_type,
     altText: file.alt_text,
     read: async () => {
@@ -86,6 +91,10 @@ export async function publishClaimedPost(env: Env, claim: ClaimedPost): Promise<
     idempotencyKey: `postfalcon-${row.id}-${row.scheduled_for}`,
     content: row.content,
     accessToken: row.access_token,
+    refreshToken: row.refresh_token,
+    tokenExpiresAt: row.token_expires_at,
+    saveTokens: (accessToken, refreshToken, expiresAt) => saveAccountTokens(env.DB, row.social_account_id, accessToken, refreshToken, expiresAt),
+    env,
     externalAccountId: row.external_account_id,
     metadata: JSON.parse(row.metadata_json) as Record<string, any>,
     platformOptions: (JSON.parse(row.platform_options_json) as Record<string, any>)[row.platform] ?? {},

@@ -91,13 +91,29 @@ pageRoutes.get(
   })),
 );
 pageRoutes.get("/analytics", appPage("analytics"));
+// A platform that needs a developer app is offered once its credentials are set.
+const TIKTOK_ENTRY = {
+  id: "tiktok",
+  label: "TikTok",
+  color: "#111111",
+  status: "live",
+  connect: "oauth",
+  connectPath: "/api/tiktok/connect",
+  hint: "Connect via TikTok. Posts must have a video attached.",
+};
+
 pageRoutes.get(
   "/accounts",
-  appPage("accounts", () => ({
-    platforms: [],
-    enabledIds: PLATFORMS_ON_ACCOUNTS_PAGE,
-    lockedIds: [],
-  })),
+  appPage("accounts", (context) => {
+    const env = context.env;
+    const instagram = Boolean(env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET);
+    const tiktok = Boolean(env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET);
+    return {
+      platforms: tiktok ? [TIKTOK_ENTRY] : [],
+      enabledIds: [...PLATFORMS_ON_ACCOUNTS_PAGE, ...(instagram ? ["instagram"] : []), ...(tiktok ? ["tiktok"] : [])],
+      lockedIds: [],
+    };
+  }),
 );
 pageRoutes.get(
   "/settings",

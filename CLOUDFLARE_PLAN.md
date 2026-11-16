@@ -914,3 +914,30 @@ Docker app (helmet's default also allows `'unsafe-inline'` and https styles). Fu
 couldn't inject its styles, so calendar events couldn't be dragged. Policy now matches
 Docker's. Telegram publishing was confirmed working on staging (a 403 was the account's
 chat id being the bot itself).
+
+### Instagram and TikTok adapters (2026-11-16)
+
+Workflow definition bumped to `-v13` (adapters are bundled into the definition).
+`PublishPost` now carries `env`, `refreshToken`, `tokenExpiresAt` and `saveTokens`;
+`PublishMedia` carries `path`. `lib/oauth-refresh.ts` (`freshAccessToken`) refreshes
+and persists expiring tokens (revoked/400/401 -> `auth`, network/5xx -> `transient`).
+
+- **Instagram** (`platforms/instagram.ts`, `/api/facebook/connect|callback`): Facebook
+  Login, Page access tokens stored per linked Instagram business account (Facebook
+  Pages themselves are not connected: no Facebook adapter yet). Container creation and
+  polling are retry-safe; `media_publish` is the ambiguous-on-loss final step. Meta
+  code 190 -> `auth`, rate-limit codes -> `transient`. Instagram fetches
+  `<PUBLIC_BASE_URL>/uploads/<name>` (a Class B read each). **JPEG only**: the Docker
+  `fitForInstagram` (sharp) has no Worker equivalent; a Cloudflare Images binding
+  would be the route but has its own quota, so it is deferred. Metrics: likes/comments.
+- **TikTok** (`platforms/tiktok.ts`, `/api/tiktok/connect|callback`,
+  `/api/tiktok/accounts/:id/creator-info`): OAuth 2.0 with PKCE (verifier kept in
+  `oauth_states`), creator_info before every publish, composer options honoured with the
+  Docker app's conservative defaults (private, interactions off), single-chunk upload,
+  status polling (unresolved poll -> `ambiguous`). **Cannot post yet**: media upload is
+  image-only, so every TikTok post fails "needs a video". Video upload (MP4 under the
+  25 MiB cap, then ranges/multipart) is the missing roadmap piece and needs its own
+  cost review.
+- Both appear on Accounts only once their secrets are set. Verified with a stubbed-fetch
+  script (22 checks: request shapes, defaults, refresh, error classification) and
+  typecheck. **Not verified against Meta or TikTok** (no developer apps yet).

@@ -27,6 +27,8 @@ export class PublishError extends Error {
 }
 
 export type PublishMedia = {
+  /** File name under /uploads/ (the public URL is `<origin>/uploads/<path>`). */
+  path: string;
   contentType: string;
   altText: string | null;
   /** Reads the stored bytes (budgeted against R2 Class B operations). */
@@ -39,6 +41,13 @@ export type PublishPost = {
   idempotencyKey: string;
   content: string;
   accessToken: string;
+  /** For platforms with expiring access tokens (TikTok). */
+  refreshToken: string | null;
+  tokenExpiresAt: number | null;
+  /** Persists a refreshed credential on the account (a rotated refresh token replaces the old one). */
+  saveTokens: (accessToken: string, refreshToken: string | null, expiresAt: number | null) => Promise<void>;
+  /** Worker bindings and operator secrets (platform app credentials, public origin). */
+  env: Env;
   externalAccountId: string | null;
   metadata: Record<string, any>;
   platformOptions: Record<string, any>;
@@ -100,14 +109,14 @@ export async function finalCreateFetch(url: string, init: RequestInit, what: str
   throw new PublishError(statusKind(response.status, true), `${what} failed (${response.status}): ${detail}`, retryAfter(response));
 }
 
-function statusKind(status: number, isFinal: boolean): PublishFailureKind {
+export function statusKind(status: number, isFinal: boolean): PublishFailureKind {
   if (status === 401) return "auth";
   if (status === 429) return "transient"; // refused before processing
   if (status >= 500 || (status >= 300 && status < 400)) return isFinal ? "ambiguous" : "transient";
   return "rejected";
 }
 
-function retryAfter(response: Response): number | undefined {
+export function retryAfter(response: Response): number | undefined {
   const value = Number(response.headers.get("retry-after"));
   return Number.isFinite(value) && value > 0 ? Math.min(value, 3600) : undefined;
 }

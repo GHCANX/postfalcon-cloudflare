@@ -1,32 +1,12 @@
+import { base64Url, hmacHex, randomBytes } from "./crypto";
+
 const SESSION_COOKIE_NAME = "__Host-postfalcon_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
+// last_seen_at is informational; refreshing it at most this often keeps an
+// active browser from costing one D1 write per request.
+const LAST_SEEN_REFRESH_SECONDS = 5 * 60;
 
-function base64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-}
-
-function secureToken(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return base64Url(bytes);
-}
-
-async function hmacHex(secret: string, value: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(value));
-  return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function firstCookieValue(request: Request, name: string): string | null {
+export function firstCookieValue(request: Request, name: string): string | null {
   const cookie = request.headers.get("cookie");
   if (!cookie) return null;
   const prefix = `${name}=`;
@@ -37,9 +17,17 @@ function firstCookieValue(request: Request, name: string): string | null {
   return null;
 }
 
+/** The stored identifier of the session cookie on this request, if it has one. */
+export async function presentedSessionHash(request: Request, sessionSecret: string): Promise<string | null> {
+  const token = firstCookieValue(request, SESSION_COOKIE_NAME);
+  return token ? hmacHex(sessionSecret, token) : null;
+}
+
 export type SessionRecord = {
   userId: number;
   expiresAt: number;
+  /** The stored identifier of this session; never the cookie value. */
+  tokenHash: string;
 };
 
 export async function createSession(
@@ -48,8 +36,8 @@ export async function createSession(
   userId: number,
   userAgent: string | null,
   now = Math.floor(Date.now() / 1000),
-): Promise<{ token: string; expiresAt: number }> {
-  const token = secureToken();
+): Promise<{ token: string; tokenHash: string; expiresAt: number }> {
+  const token = base64Url(randomBytes(32));
   const expiresAt = now + SESSION_TTL_SECONDS;
   const [tokenHash, userAgentHash] = await Promise.all([
     hmacHex(sessionSecret, token),
@@ -64,7 +52,7 @@ export async function createSession(
     .bind(tokenHash, userId, expiresAt, now, now, userAgentHash)
     .run();
 
-  return { token, expiresAt };
+  return { token, tokenHash, expiresAt };
 }
 
 export async function readSession(
@@ -73,29 +61,36 @@ export async function readSession(
   sessionSecret: string,
   now = Math.floor(Date.now() / 1000),
 ): Promise<SessionRecord | null> {
-  const token = firstCookieValue(request, SESSION_COOKIE_NAME);
-  if (!token) return null;
-
-  const tokenHash = await hmacHex(sessionSecret, token);
+  const tokenHash = await presentedSessionHash(request, sessionSecret);
+  if (!tokenHash) return null;
   const session = await database
     .prepare(
-      `SELECT user_id AS userId, expires_at AS expiresAt
+      `SELECT user_id AS userId, expires_at AS expiresAt, last_seen_at AS lastSeenAt
          FROM sessions
         WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?`,
     )
     .bind(tokenHash, now)
-    .first<SessionRecord>();
+    .first<{ userId: number; expiresAt: number; lastSeenAt: number }>();
 
   if (!session) return null;
-  await database.prepare("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?").bind(now, tokenHash).run();
-  return session;
+  if (now - session.lastSeenAt >= LAST_SEEN_REFRESH_SECONDS) {
+    await database.prepare("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?").bind(now, tokenHash).run();
+  }
+  return { userId: session.userId, expiresAt: session.expiresAt, tokenHash };
 }
 
 export async function revokeSession(request: Request, database: D1Database, sessionSecret: string): Promise<void> {
-  const token = firstCookieValue(request, SESSION_COOKIE_NAME);
-  if (!token) return;
-  const tokenHash = await hmacHex(sessionSecret, token);
+  const tokenHash = await presentedSessionHash(request, sessionSecret);
+  if (!tokenHash) return;
   await database.prepare("UPDATE sessions SET revoked_at = unixepoch() WHERE token_hash = ?").bind(tokenHash).run();
+}
+
+/** Signs a user out everywhere except the session named by `keepTokenHash`. */
+export async function revokeOtherSessions(database: D1Database, userId: number, keepTokenHash: string | null): Promise<void> {
+  await database
+    .prepare("UPDATE sessions SET revoked_at = unixepoch() WHERE user_id = ? AND revoked_at IS NULL AND token_hash IS NOT ?")
+    .bind(userId, keepTokenHash)
+    .run();
 }
 
 export function sessionCookie(token: string, expiresAt: number): string {
@@ -106,7 +101,6 @@ export function expiredSessionCookie(): string {
   return `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
 }
 
-export async function purgeExpiredSessions(database: D1Database, now = Math.floor(Date.now() / 1000)): Promise<number> {
-  const result = await database.prepare("DELETE FROM sessions WHERE expires_at <= ? OR revoked_at IS NOT NULL").bind(now).run();
-  return result.meta.changes;
+export async function purgeExpiredSessions(database: D1Database, now = Math.floor(Date.now() / 1000)): Promise<void> {
+  await database.prepare("DELETE FROM sessions WHERE expires_at <= ? OR revoked_at IS NOT NULL").bind(now).run();
 }

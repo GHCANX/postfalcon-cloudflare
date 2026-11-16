@@ -17,6 +17,7 @@
     "d1:migrate:production": "cf d1 migrations apply postfalcon-production --dir migrations"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "hono": "^4.11.0"
   },
   "devDependencies": {

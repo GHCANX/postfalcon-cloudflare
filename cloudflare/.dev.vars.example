@@ -1,3 +1,4 @@
-# Reserved for the Mailgun and authenticated-session workstreams. Never commit
-# .dev.vars or production secrets. Until routes use them, no local secret is
-# required for the Cloudflare foundation.
+# Copy to .dev.vars for `npm run dev`. Never commit .dev.vars.
+# Each value: at least 32 random characters, e.g. `openssl rand -hex 32`.
+SESSION_SECRET=
+SETUP_TOKEN=

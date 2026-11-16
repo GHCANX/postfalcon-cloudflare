@@ -1,16 +1,51 @@
 import { Hono } from "hono";
 
+import { type AppEnv, csrfProtection, requireConfiguredSecrets } from "./lib/auth";
 import {
   findUnboundScheduledPosts,
   recordWorkflowInstance,
   releaseExpiredDeliveryLeases,
   workflowInstanceId,
 } from "./lib/delivery";
+import { purgeRateLimits } from "./lib/rate-limit";
+import { purgeExpiredSessions } from "./lib/sessions";
+import { authRoutes } from "./routes/auth";
 import { ScheduledPostDelivery } from "./workflows/post-delivery";
 
-type Bindings = { Bindings: Env };
+const app = new Hono<AppEnv>();
 
-const app = new Hono<Bindings>();
+// The same policy the Docker app sets through helmet: no inline script or
+// style, nothing loaded from another origin, never framed.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' blob:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
+app.use("*", async (context, next) => {
+  await next();
+  context.header("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+  context.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  context.header("X-Content-Type-Options", "nosniff");
+  context.header("X-Frame-Options", "DENY");
+  context.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  context.header("Cross-Origin-Opener-Policy", "same-origin");
+});
+
+// Every /api response is per-user, so none of it may be cached.
+app.use("/api/*", async (context, next) => {
+  await next();
+  context.header("Cache-Control", "no-store");
+});
+app.use("/api/*", requireConfiguredSecrets, csrfProtection);
+app.route("/api", authRoutes);
 
 function log(event: string, fields: Record<string, unknown> = {}): void {
   console.log(JSON.stringify({ event, ...fields }));
@@ -89,6 +124,11 @@ async function runReconciliation(
   }
 }
 
+/** Deletes ended sessions and old rate-limit windows. Runs every 15 minutes. */
+async function runMaintenance(env: Env): Promise<void> {
+  await Promise.all([purgeExpiredSessions(env.DB), purgeRateLimits(env.DB)]);
+}
+
 app.get("/healthz", async (context) => {
   try {
     const database = await context.env.DB.prepare("SELECT 1 AS ok").first<{ ok: number }>();
@@ -132,6 +172,13 @@ export default {
 
   async scheduled(controller, env, context) {
     const scheduledFor = new Date(controller.scheduledTime).toISOString();
+    if (new Date(controller.scheduledTime).getUTCMinutes() % 15 === 0) {
+      context.waitUntil(
+        runMaintenance(env).catch((error: unknown) =>
+          console.error(JSON.stringify({ event: "scheduled_maintenance_failed", scheduledFor, error: errorMessage(error) })),
+        ),
+      );
+    }
     context.waitUntil(
       runReconciliation(env, context.exports.ScheduledPostDelivery, scheduledFor)
         .catch((error: unknown) =>

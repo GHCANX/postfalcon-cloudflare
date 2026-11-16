@@ -623,3 +623,25 @@ runtime; add protected login/logout/bootstrap routes, existing bcrypt password
 hash compatibility, CSRF enforcement for cookie-authenticated mutations,
 Google-OAuth callback verification, API-token authentication, and rate limits.
 Keep open registration disabled after the one owner is created.
+
+**Identity routes implemented locally (2026-11-16, Claude Code).** Added
+`src/lib/{auth,crypto,csrf,passwords,rate-limit}.ts`, `src/routes/auth.ts`,
+migration `0005_rate_limits.sql`, security headers (CSP etc.) on every
+response, and `no-store` on `/api`. Routes under `/api` mirror the Docker
+paths: `GET /csrf-token`, `GET|POST /setup` (owner bootstrap guarded by the
+`SETUP_TOKEN` secret, single atomic INSERT-WHERE-NOT-EXISTS), `POST /users`
+(always 403), `/auth/login|logout|me|change-password|api-token`. Sessions are
+HMAC-hashed opaque cookies (`last_seen_at` refreshed at most every 5 min);
+CSRF is a signed double-submit token, exempt for Bearer requests; auth routes
+are limited to 10 per 15 min per client address (D1 fixed window, address
+stored only as a keyed hash; purged every 15 min by Cron). New passwords use
+PBKDF2-SHA256 at 100,000 iterations (the Workers maximum); imported bcrypt
+hashes still verify and are upgraded on first login. Declared secrets
+`SESSION_SECRET` and `SETUP_TOKEN` in the config. Verified locally with
+`cf dev`: unauthenticated 401, missing CSRF 403, setup once then 409, sign-up
+403, bad/good login, logout revokes, Bearer token auth, 429 after 10 attempts.
+**Not done / not deployed:** staging has neither the secrets nor migration 0005
+(apply with `npm run d1:migrate:staging`, then set both secrets, then deploy);
+password reset and verification wait on Mailgun (item 5); Google sign-in and
+account deletion not ported; the Worker has no login page yet (static assets
+come with the UI port), so the API is exercised with curl.

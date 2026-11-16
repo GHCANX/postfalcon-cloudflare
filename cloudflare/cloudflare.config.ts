@@ -28,6 +28,9 @@ export default defineConfig(({ mode }) => {
           name: `postfalcon-${suffix}`,
           ...(isStaging ? { id: "153ee2ab-906e-4dd9-a41c-52bfc4c8bbdc" } : {}),
         }),
+        // Set with `cf workers secrets update`; see README "Secrets".
+        SESSION_SECRET: bindings.secret(),
+        SETUP_TOKEN: bindings.secret(),
         MEDIA: bindings.r2({ name: `postfalcon-${suffix}-media` }),
         R2_BUDGET: bindings.json({
           maxObjectBytes: 25 * 1024 * 1024,

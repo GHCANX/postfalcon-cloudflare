@@ -52,6 +52,19 @@ Only this `cloudflare/` subproject requires Node 22.23+. It has been validated
 with Node 22.23.0; use a version manager or a CI image that supplies that
 runtime rather than changing the Docker image as part of this migration.
 
+## Secrets
+
+`SESSION_SECRET` (signs session/CSRF values and keys rate limits) and
+`SETUP_TOKEN` (one-time proof of ownership for creating the owner account) are
+declared in `cloudflare.config.ts`. Set each with
+`cf workers secrets update <NAME> --worker postfalcon-staging --text <value>`
+(32+ random characters; `openssl rand -hex 32`). Without them every `/api`
+route answers 503. Locally, put them in `.dev.vars`.
+
+First sign-in on a fresh instance: `POST /api/setup` with
+`{setup_token, email, password}` (after fetching `GET /api/csrf-token`). It only
+works while the users table is empty; after that `/api/users` stays closed.
+
 ## Current boundary
 
 The only deployed behavior at this stage is a D1-backed health endpoint and a

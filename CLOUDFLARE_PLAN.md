@@ -798,3 +798,22 @@ tools can never exceed what the token can do over REST). `get_analytics_summary`
 is deferred with item 11. Verified locally: 401 for no/cookie/bad token, 405 for
 GET, initialize, tools/list, list_accounts, create_post. Not verified: a real
 MCP client (Claude Code/Cursor) against staging.
+
+### Work item 11 — metrics and analytics (2026-11-16)
+
+`fetchMetrics` on the Mastodon and Bluesky adapters (Bluesky reads the public
+AppView, no login). `src/lib/metrics.ts` `refreshPostMetrics()` runs every 3
+hours at :30 from the Cron Trigger: the 20 posts with the oldest numbers among
+posts published in the last 30 days, so a large backlog rotates instead of
+exceeding the Free plan's 50 subrequests per invocation; a post the platform no
+longer has is stamped so it cannot starve the queue; a 401 flags the account for
+reconnecting. The delivery workflow (`-v10`) also reads metrics once right
+after a publish. `GET /api/v1/analytics/summary?days=7|30|90&tz=` returns the
+Docker app's shape (per-day series bucketed on the viewer's IANA timezone,
+period figures, platform breakdown, top posts, all-time totals, top post of the
+week; a metric is null when no post reports it), aggregated in the Worker. The
+`get_analytics_summary` MCP tool is back. Verified locally: a real public
+Bluesky post's counts were fetched and stored, and the summary aggregated
+Bluesky + Telegram rows with a Sydney timezone; unknown timezone falls back to
+UTC; 401 unauthenticated. Facebook/Instagram/Threads/YouTube metrics come with
+their adapters.

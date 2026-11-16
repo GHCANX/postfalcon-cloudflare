@@ -12,6 +12,7 @@ import {
 } from "./lib/delivery";
 import { sweepUnreferencedMedia } from "./lib/media";
 import { purgeWebhookDeliveries } from "./lib/webhooks";
+import { refreshPostMetrics } from "./lib/metrics";
 import { purgeOAuthStates } from "./lib/oauth";
 import { purgeRateLimits } from "./lib/rate-limit";
 import { purgeExpiredSessions } from "./lib/sessions";
@@ -20,6 +21,7 @@ import { authRoutes } from "./routes/auth";
 import { connectRoutes } from "./routes/connect";
 import { mediaApi, publicMedia } from "./routes/media";
 import { postRoutes } from "./routes/posts";
+import { analyticsRoutes } from "./routes/analytics";
 import { webhookRoutes } from "./routes/webhooks";
 import { oauthRoutes } from "./routes/oauth";
 import { ScheduledPostDelivery } from "./workflows/post-delivery";
@@ -65,6 +67,7 @@ app.route("/api/v1/media", mediaApi);
 app.route("/api/posts", postRoutes);
 app.route("/api/v1/posts", postRoutes);
 app.route("/api/v1/webhooks", webhookRoutes);
+app.route("/api/v1/analytics", analyticsRoutes);
 app.route("/api/v1/social-accounts", accountRoutes);
 
 function log(event: string, fields: Record<string, unknown> = {}): void {
@@ -227,7 +230,16 @@ export default {
 
   async scheduled(controller, env, context) {
     const scheduledFor = new Date(controller.scheduledTime).toISOString();
-    if (new Date(controller.scheduledTime).getUTCMinutes() % 15 === 0) {
+    const tick = new Date(controller.scheduledTime);
+    // Every 3 hours, at :30 (maintenance runs at :00/:15/:30/:45; this is separate work).
+    if (tick.getUTCMinutes() === 30 && tick.getUTCHours() % 3 === 0) {
+      context.waitUntil(
+        refreshPostMetrics(env.DB)
+          .then((result) => console.log(JSON.stringify({ event: "metrics_refresh_completed", ...result })))
+          .catch((error: unknown) => console.error(JSON.stringify({ event: "metrics_refresh_run_failed", error: errorMessage(error) }))),
+      );
+    }
+    if (tick.getUTCMinutes() % 15 === 0) {
       context.waitUntil(
         runMaintenance(env).catch((error: unknown) =>
           console.error(JSON.stringify({ event: "scheduled_maintenance_failed", scheduledFor, error: errorMessage(error) })),

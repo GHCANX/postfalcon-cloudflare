@@ -8,6 +8,7 @@ import {
   workflowInstanceId,
 } from "../lib/delivery";
 import { deliverWebhook, type WebhookEvent, webhookIdsFor } from "../lib/webhooks";
+import { refreshOne } from "../lib/metrics";
 import { scheduleNextOccurrence } from "../lib/recurrence";
 import { markFailed, markPublished, markPublishStarted, publishClaimedPost, requeueForRetry } from "../lib/publish";
 
@@ -93,6 +94,24 @@ export class ScheduledPostDelivery extends WorkflowEntrypoint<Env, DeliveryParam
         await step.do("queue next occurrence", async () => scheduleNextOccurrence(this.env.DB, params.postId)).catch((error: unknown) =>
           console.error(JSON.stringify({ event: "next_occurrence_failed", postId: params.postId, error: String(error) })),
         );
+      }
+      if (result.outcome === "published") {
+        // First metrics read right away, so Analytics shows the new post's counts
+        // before the next scheduled refresh. Best effort.
+        await step
+          .do("initial metrics", async () => {
+            const post = await this.env.DB
+              .prepare(
+                `SELECT posts.id, social_accounts.platform, posts.platform_post_id, social_accounts.access_token,
+                        social_accounts.external_account_id, social_accounts.metadata_json
+                   FROM posts JOIN social_accounts ON social_accounts.id = posts.social_account_id WHERE posts.id = ?`,
+              )
+              .bind(params.postId)
+              .first<{ id: number; platform: string; platform_post_id: string | null; access_token: string | null; external_account_id: string | null; metadata_json: string }>();
+            if (!post?.platform_post_id) return false;
+            return refreshOne(this.env.DB, { ...post, platform_post_id: post.platform_post_id });
+          })
+          .catch(() => undefined);
       }
       const event = WEBHOOK_EVENT_FOR[result.outcome];
       if (event) await this.notify(step, params, event);

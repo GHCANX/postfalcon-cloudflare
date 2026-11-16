@@ -47,7 +47,7 @@ export default defineConfig(({ mode }) => {
           // Advance this suffix deliberately when a Workflow code change must
           // take effect, retaining old definitions only until their instances
           // have drained or been explicitly inspected.
-          name: `postfalcon-${suffix}-post-delivery-v9`,
+          name: `postfalcon-${suffix}-post-delivery-v10`,
           concurrency: { limit: 10 },
           limits: { steps: 60 },
           defaultRetention: {

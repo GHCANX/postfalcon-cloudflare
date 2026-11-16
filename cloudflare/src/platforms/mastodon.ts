@@ -1,4 +1,4 @@
-import { type PlatformAdapter, failPreStep, finalCreateFetch, PublishError, preStepFetch } from "./types";
+import { type PlatformAdapter, failPreStep, finalCreateFetch, PublishError, preStepFetch, readFetch } from "./types";
 
 const MAX_IMAGES = 4;
 
@@ -36,5 +36,18 @@ export const mastodon: PlatformAdapter = {
     const data = (await response.json().catch(() => ({}))) as { id?: string };
     if (!data.id) throw new PublishError("ambiguous", "Mastodon accepted the post but returned no id");
     return data.id;
+  },
+
+  // Mastodon has no "views" for a status: likes, replies and boosts only.
+  async fetchMetrics(target) {
+    const instance = target.metadata.instance;
+    if (typeof instance !== "string" || !instance) return null;
+    const response = await readFetch(`https://${instance}/api/v1/statuses/${encodeURIComponent(target.platformPostId)}`, {
+      headers: { Authorization: `Bearer ${target.accessToken}` },
+    });
+    if (response.status === 404 || response.status === 410) return null;
+    if (!response.ok) throw new Error(`Mastodon status lookup failed (${response.status})`);
+    const data = (await response.json().catch(() => ({}))) as Record<string, any>;
+    return { views: null, likes: data.favourites_count ?? null, comments: data.replies_count ?? null, shares: data.reblogs_count ?? null };
   },
 };

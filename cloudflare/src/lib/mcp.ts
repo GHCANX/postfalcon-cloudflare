@@ -34,6 +34,21 @@ export function createMcpServer(call: ApiCall): McpServer {
   );
 
   server.tool(
+    "get_analytics_summary",
+    "Get engagement totals, a per-day chart, per-platform breakdown and the top-performing posts, aggregated across connected accounts. Coverage varies by platform; a metric is null when no post reports it.",
+    {
+      days: z.union([z.literal(7), z.literal(30), z.literal(90)]).optional().describe("Range in days (default 7)"),
+      tz: z.string().optional().describe("IANA timezone for day boundaries, e.g. Australia/Sydney"),
+    },
+    async ({ days, tz }) => {
+      const params = new URLSearchParams();
+      if (days) params.set("days", String(days));
+      if (tz) params.set("tz", tz);
+      return textResult(await api(`/api/v1/analytics/summary${params.size ? `?${params}` : ""}`));
+    },
+  );
+
+  server.tool(
     "list_posts",
     "List posts, optionally filtered by status or connected account",
     {

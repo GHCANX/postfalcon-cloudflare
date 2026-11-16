@@ -42,12 +42,27 @@ export type PublishPost = {
   media: PublishMedia[];
 };
 
+export type PostMetrics = { views: number | null; likes: number | null; comments: number | null; shares: number | null };
+
+export type MetricsTarget = {
+  platformPostId: string;
+  accessToken: string;
+  externalAccountId: string | null;
+  metadata: Record<string, any>;
+};
+
 export type PlatformAdapter = {
   /** Returns the platform's id for the new post. Throws PublishError. */
   publish(post: PublishPost): Promise<string>;
+  /** Engagement counts (null for what the platform doesn't report); null if the post is gone. */
+  fetchMetrics?(target: MetricsTarget): Promise<PostMetrics | null>;
 };
 
 const REQUEST_TIMEOUT_MS = 20_000;
+
+export async function readFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), redirect: "manual" });
+}
 
 /** A request that happens before the final create: failures are safe to retry. */
 export async function preStepFetch(url: string, init: RequestInit, what: string): Promise<Response> {

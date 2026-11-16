@@ -1,4 +1,4 @@
-import { type PlatformAdapter, failPreStep, finalCreateFetch, PublishError, preStepFetch } from "./types";
+import { type PlatformAdapter, failPreStep, finalCreateFetch, PublishError, preStepFetch, readFetch } from "./types";
 
 const PDS = "https://bsky.social";
 const MAX_IMAGES = 4;
@@ -85,5 +85,17 @@ export const bluesky: PlatformAdapter = {
     const data = (await response.json().catch(() => ({}))) as { uri?: string };
     if (!data.uri) throw new PublishError("ambiguous", "Bluesky accepted the post but returned no uri");
     return data.uri;
+  },
+
+  // The public AppView serves engagement counts without a login. No "views" concept.
+  async fetchMetrics(target) {
+    const url = new URL("https://public.api.bsky.app/xrpc/app.bsky.feed.getPosts");
+    url.searchParams.set("uris", target.platformPostId);
+    const response = await readFetch(url.toString());
+    if (!response.ok) throw new Error(`Bluesky post lookup failed (${response.status})`);
+    const data = (await response.json().catch(() => ({}))) as { posts?: Record<string, any>[] };
+    const found = data.posts?.[0];
+    if (!found) return null;
+    return { views: null, likes: found.likeCount ?? null, comments: found.replyCount ?? null, shares: found.repostCount ?? null };
   },
 };

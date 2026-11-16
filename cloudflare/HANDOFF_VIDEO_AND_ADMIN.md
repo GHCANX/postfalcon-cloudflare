@@ -93,9 +93,47 @@ Acceptance: a 300 MB MP4 saves to a draft from the browser; abandoned uploads ar
 and their reserved bytes returned; R2 caps in `R2_BUDGET` are unchanged except the two
 object limits above; nothing in the Docker app changed.
 
-Known limits to leave as is (document, don't fix): Instagram stays JPEG-only; Bluesky
-rejects video; Mastodon (whole-file `read()`) fails over 64 MiB with the "too large" message;
+Known limits to leave as is (document, don't fix): Bluesky
+rejects video; Instagram video is Part A2 below, not part of this step; Mastodon (whole-file `read()`) fails over 64 MiB with the "too large" message;
 TikTok is the only platform that streams large files.
+
+### Part A2: Instagram video (Reels)
+
+Do this after Part A is deployed and verified. Today `src/platforms/instagram.ts` rejects
+anything that is not a JPEG; that is a gap in this port, not an Instagram limit. The Docker
+adapter (`../lib/platforms/instagram.js`) sends `video_url` without `media_type=REELS`;
+do not copy that without checking it still works.
+
+1. **Read Meta's current docs first** (Instagram Platform > Content Publishing): confirm that
+   a single video must be created with `media_type=REELS` + `video_url`, whether feed
+   `VIDEO` is still accepted, and the current limits (codec, duration, aspect ratio, file
+   size, container status codes). Put the confirmed limits in the adapter as named constants
+   with a comment citing the doc, and in the README. Do not rely on memory.
+2. **Accept video types.** Allow `video/mp4` and `video/quicktime` alongside `image/jpeg`;
+   keep rejecting PNG/WebP/GIF with the existing message. Reject a mixed set that Instagram
+   does not allow in one post (check the docs: carousels may mix photo and video, a Reel is
+   a single video).
+3. **Create the container.** Single video: `{ media_type: "REELS", video_url, caption }`
+   (alt text does not apply to video). Carousel: video children use `media_type: "VIDEO"`,
+   `is_carousel_item: true`, `video_url`. Public URL stays `<PUBLIC_BASE_URL>/uploads/<name>`;
+   the object must be readable by Instagram's fetcher (range requests already work, and each
+   fetch spends a Class B read from the monthly budget).
+4. **Longer polling.** `waitForContainer` currently allows 15 x 2 s. Videos can take
+   minutes: poll up to about 5 minutes with a growing interval (for example 3 s rising to
+   15 s). Wall-clock time is fine inside a Workflow step; stay under the step's limits and
+   keep every poll a retry-safe read. `ERROR`/`EXPIRED` map to `rejected` with Instagram's
+   `status` text if present; running out of time maps to `transient` (nothing was published
+   yet), never `ambiguous`.
+5. **Keep the ambiguity rule.** Only `media_publish` is the final create; a lost response
+   there is `ambiguous` as today.
+6. **Tests.** Extend the stubbed-fetch script: single Reel (checks `media_type=REELS`,
+   `video_url`, no `alt_text`), carousel with a video child, slow processing then
+   `FINISHED`, `ERROR` status -> `rejected`, poll timeout -> `transient`, PNG still
+   rejected.
+7. **Cost note for the README.** Instagram fetches the whole video from R2: one Class B read
+   per range request, and bandwidth is free from R2 but count the reads in the budget.
+8. **Bump the Workflow suffix**, deploy only when the user asks, and note in the plan that it
+   is **unverified against Meta** until a real app and Instagram business account exist.
 
 ---
 

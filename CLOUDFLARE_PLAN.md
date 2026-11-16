@@ -883,9 +883,14 @@ dashboard checklist. These paths are `runWorkerFirst`; other files are static as
 `typecheck` and `build` run `build:ui` first. Verified locally with `cf dev`: the
 auth pages and static files serve, `/dashboard` redirects when signed out.
 
-**Next:** first-run owner page. `/signup` should render only while `GET /api/setup`
-says `needed`, with an override `signup.js` that posts to `/api/setup` (the Docker
-script posts to `/api/users`, closed here). Then walk the signed-in pages
-(dashboard, accounts, settings, analytics) against local D1 and fix API-shape gaps;
-the composer's calendar/media paths (`/api/v1/media`, `/api/v1/posts`) are untested
-through the real front end. Not yet deployed to staging.
+**First-run owner page (done).** `/setup` and `/signup` render the Docker sign-up view
+only while no account exists (else redirect to `/login`); `overrides/public/signup.js`
+adds a Setup token field and posts to `/api/setup`, which creates the owner and
+signs them in. Verified locally with `cf dev`: setup returns 201, then `/dashboard`,
+`/accounts`, `/settings`, `/analytics` render (200) for that session and
+`/api/onboarding`, `/api/v1/social-accounts`, `/api/v1/posts` answer.
+
+**Next:** drive the signed-in pages in a real browser (composer, calendar,
+media upload, connect forms) to catch API-shape gaps; the composer's
+`/api/v1/media` and `/api/v1/posts` calls are untested through the front end.
+Not yet deployed to staging.

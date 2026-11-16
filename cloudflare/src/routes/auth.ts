@@ -54,7 +54,7 @@ auth.get("/csrf-token", async (context) => {
 // The instance has exactly one account. It is created once, by whoever holds
 // the SETUP_TOKEN secret, and no other route can create a user.
 
-async function ownerExists(database: D1Database): Promise<boolean> {
+export async function ownerExists(database: D1Database): Promise<boolean> {
   return (await database.prepare("SELECT 1 AS present FROM users LIMIT 1").first()) !== null;
 }
 

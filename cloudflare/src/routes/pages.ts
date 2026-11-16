@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 
+import { ownerExists } from "./auth";
 import { type AppEnv, type AuthUser, sessionUser } from "../lib/auth";
 import { mailConfigured } from "../lib/mailer";
 import { adminSetupStatus, onboardingStatus } from "../lib/onboarding";
@@ -58,6 +59,20 @@ pageRoutes.get("/", async (context) => context.redirect((await sessionUser(conte
 pageRoutes.get("/login", guestPage("login"));
 pageRoutes.get("/forgot-password", guestPage("forgot-password"));
 pageRoutes.get("/reset-password", guestPage("reset-password", (context) => ({ token: context.req.query("token") ?? "" })));
+
+/** First-run owner setup: only reachable while the instance has no account. */
+async function setupPage(context: Context<AppEnv>) {
+  if (await ownerExists(context.env.DB)) return context.redirect("/login");
+  return html(context, "signup", {
+    ...baseLocals(context, null),
+    signupBlocked: null,
+    invite: "",
+    pickedPlan: null,
+    livePlatforms: [],
+  });
+}
+pageRoutes.get("/setup", setupPage);
+pageRoutes.get("/signup", setupPage);
 
 /** A page for the signed-in owner; anyone else is sent to /login. */
 function appPage(name: string, extra: (context: Context<AppEnv>, user: AuthUser) => Promise<Record<string, unknown>> | Record<string, unknown> = () => ({})) {

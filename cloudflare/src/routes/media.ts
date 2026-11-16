@@ -9,44 +9,54 @@ import { R2BudgetExceededError, releaseR2StorageReservation, reserveR2Budget } f
 export const mediaApi = new Hono<AppEnv>();
 mediaApi.use("*", requireAuth);
 
-mediaApi.post("/", async (context) => {
-  const contentType = (context.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+export type StoredImage = { id: number; url: string; content_type: string; byte_size: number };
+export type StoreImageResult = { ok: true; image: StoredImage } | { ok: false; status: 400 | 413 | 415 | 507; body: Record<string, unknown> };
+
+/** Streams one image into R2 under the budget caps and records it. Shared by the upload route and multipart post creation. */
+export async function storeImage(env: AppEnv["Bindings"], userId: number, request: Request, contentTypeHeader: string): Promise<StoreImageResult> {
+  const contentType = contentTypeHeader.split(";")[0]!.trim().toLowerCase();
   const name = newMediaName(contentType);
   if (!name) {
-    return context.json({ error: "unsupported_type", message: `Upload a ${Object.keys(IMAGE_TYPES).join(", ")} image.` }, 415);
+    return { ok: false, status: 415, body: { error: "unsupported_type", message: `Upload a ${Object.keys(IMAGE_TYPES).join(", ")} image.` } };
   }
 
   const key = `media/${name}`;
-  const budget = context.env.R2_BUDGET;
+  const budget = env.R2_BUDGET;
   let byteSize: number;
   try {
-    ({ byteSize } = await storeBoundedMedia(context.req.raw, context.env.DB, context.env.MEDIA, budget, { key, contentType }));
+    ({ byteSize } = await storeBoundedMedia(request, env.DB, env.MEDIA, budget, { key, contentType }));
   } catch (error) {
     if (error instanceof R2BudgetExceededError) {
       const tooBig = error.dimension === "object";
-      return context.json(
-        { error: tooBig ? "file_too_large" : "storage_limit_reached", message: tooBig ? "Images can be at most 25 MB." : "Media storage is full." },
-        tooBig ? 413 : 507,
-      );
+      return {
+        ok: false,
+        status: tooBig ? 413 : 507,
+        body: { error: tooBig ? "file_too_large" : "storage_limit_reached", message: tooBig ? "Images can be at most 25 MB." : "Media storage is full." },
+      };
     }
-    if (error instanceof UploadRejectedError) return context.json({ error: "invalid_upload", message: error.message }, 400);
+    if (error instanceof UploadRejectedError) return { ok: false, status: 400, body: { error: "invalid_upload", message: error.message } };
     throw error;
   }
 
   try {
-    const row = await context.env.DB
+    const row = await env.DB
       .prepare("INSERT INTO media_files (user_id, r2_key, content_type, byte_size) VALUES (?, ?, ?, ?) RETURNING id")
-      .bind(context.get("user").id, key, contentType, byteSize)
+      .bind(userId, key, contentType, byteSize)
       .first<{ id: number }>();
     if (!row) throw new Error("media_files insert returned no row");
-    return context.json({ id: row.id, url: `/uploads/${name}`, content_type: contentType, byte_size: byteSize }, 201);
+    return { ok: true, image: { id: row.id, url: `/uploads/${name}`, content_type: contentType, byte_size: byteSize } };
   } catch (error) {
     // The object exists but nothing would ever find it: remove it again.
-    await reserveR2Budget(context.env.DB, budget, { classAOperations: 1 });
-    await context.env.MEDIA.delete(key);
-    await releaseR2StorageReservation(context.env.DB, { mediaBytes: byteSize, totalBytes: byteSize });
+    await reserveR2Budget(env.DB, budget, { classAOperations: 1 });
+    await env.MEDIA.delete(key);
+    await releaseR2StorageReservation(env.DB, { mediaBytes: byteSize, totalBytes: byteSize });
     throw error;
   }
+}
+
+mediaApi.post("/", async (context) => {
+  const result = await storeImage(context.env, context.get("user").id, context.req.raw, context.req.header("content-type") ?? "");
+  return result.ok ? context.json(result.image, 201) : context.json(result.body, result.status);
 });
 
 /**

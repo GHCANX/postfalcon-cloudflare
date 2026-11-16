@@ -74,6 +74,8 @@ app.route("/api/v1/webhooks", webhookRoutes);
 app.route("/api/v1/analytics", analyticsRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/api/onboarding", onboardingRoutes);
+// The UI asks whether billing exists; the single-owner profile has none.
+app.get("/api/billing/status", (context) => context.json({ billingConfigured: false }));
 app.route("/api/v1/social-accounts", accountRoutes);
 
 function log(event: string, fields: Record<string, unknown> = {}): void {

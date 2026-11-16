@@ -894,3 +894,17 @@ signs them in. Verified locally with `cf dev`: setup returns 201, then `/dashboa
 media upload, connect forms) to catch API-shape gaps; the composer's
 `/api/v1/media` and `/api/v1/posts` calls are untested through the front end.
 Not yet deployed to staging.
+
+### Staging walkthrough fixes (2026-11-16)
+
+First browser pass on staging (owner signed in): pages, accounts, settings, analytics
+and sign-out all worked; two bugs. (1) The composer posts `multipart/form-data`
+(text fields, JSON-string option fields, `media` files) but `POST /api/v1/posts`
+only read JSON, so draft/post/schedule all failed validation. It now also accepts
+multipart: files are stored through the shared `storeImage()` (extracted from the
+media route, same R2 caps) and the request continues with `media_ids`. A request
+that fails validation after upload leaves its image unreferenced in R2; nothing
+sweeps those yet. (2) Settings showed `not_found` because `/api/billing/status`
+didn't exist; it now answers `{billingConfigured:false}`. Verified locally with
+curl (draft, scheduled post with image and alt text) and redeployed staging.
+Still to confirm in the browser: composer, scheduling, calendar drag, media preview.

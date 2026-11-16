@@ -1,6 +1,8 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 
 import { type AppEnv, requireAuth } from "../lib/auth";
+import { storeImage } from "./media";
 import {
   MAX_CHANNELS_PER_POST,
   MAX_MEDIA_PER_POST,
@@ -34,6 +36,52 @@ function invalid(errors: ValidationFailure[]) {
 async function jsonBody(request: Request): Promise<Record<string, unknown>> {
   const body: unknown = await request.json().catch(() => null);
   return body !== null && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+}
+
+const JSON_FIELDS = ["alt_texts", "tiktok_options", "youtube_options"];
+
+/**
+ * The browser composer sends multipart/form-data (text fields, JSON-encoded
+ * option objects, and `media` files). Each file is stored first, then the
+ * request continues as the JSON form with `media_ids`. A null result means the
+ * form was malformed; a Response is an upload rejection.
+ */
+async function multipartBody(context: Context<AppEnv>): Promise<Record<string, unknown> | Response> {
+  const form = await context.req.raw.formData().catch(() => null);
+  if (!form) return {};
+  const body: Record<string, unknown> = {};
+  const files: File[] = [];
+  for (const [key, value] of form.entries()) {
+    if (typeof value !== "string") {
+      if (key === "media") files.push(value);
+      continue;
+    }
+    if (key === "social_account_ids") body.social_account_ids = [...((body.social_account_ids as string[] | undefined) ?? []), value];
+    else if (key === "publish_now") body.publish_now = value === "true" ? true : value === "false" ? false : value;
+    else if (JSON_FIELDS.includes(key)) {
+      try {
+        body[key] = JSON.parse(value);
+      } catch {
+        body[key] = "invalid";
+      }
+    } else body[key] = value;
+  }
+  if (files.length > MAX_MEDIA_PER_POST) {
+    return context.json(invalid([{ path: "media", message: `At most ${MAX_MEDIA_PER_POST} files` }]), 400);
+  }
+  const ids: number[] = [];
+  for (const file of files) {
+    const request = new Request("https://upload.invalid/", {
+      method: "POST",
+      body: file.stream(),
+      headers: { "content-type": file.type, "content-length": String(file.size) },
+    });
+    const result = await storeImage(context.env, context.get("user").id, request, file.type);
+    if (!result.ok) return context.json(result.body, result.status);
+    ids.push(result.image.id);
+  }
+  if (ids.length > 0) body.media_ids = ids;
+  return body;
 }
 
 async function loadMedia(database: D1Database, postIds: number[]): Promise<Map<number, MediaRow[]>> {
@@ -109,7 +157,10 @@ postRoutes.get("/:id", async (context) => {
 postRoutes.post("/", async (context) => {
   const database = context.env.DB;
   const user = context.get("user");
-  const body = await jsonBody(context.req.raw);
+  const isForm = (context.req.header("content-type") ?? "").toLowerCase().startsWith("multipart/form-data");
+  const parsedBody = isForm ? await multipartBody(context) : await jsonBody(context.req.raw);
+  if (parsedBody instanceof Response) return parsedBody;
+  const body = parsedBody;
   const errors: ValidationFailure[] = [];
   const now = Math.floor(Date.now() / 1000);
 

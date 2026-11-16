@@ -32,12 +32,15 @@ import { ScheduledPostDelivery } from "./workflows/post-delivery";
 
 const app = new Hono<AppEnv>();
 
-// The same policy the Docker app sets through helmet: no inline script or
-// style, nothing loaded from another origin, never framed.
+// The same policy the Docker app sets through helmet: no inline script, nothing
+// loaded from another origin, never framed. Inline *styles* stay allowed, as in
+// helmet's defaults: FullCalendar positions events with style attributes and a
+// style tag, and the pages use style="" attributes.
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self'",
-  "style-src 'self'",
+  "style-src 'self' https: 'unsafe-inline'",
+  "font-src 'self' https: data:",
   "img-src 'self' data: blob: https:",
   "media-src 'self' blob:",
   "connect-src 'self'",

@@ -908,3 +908,9 @@ sweeps those yet. (2) Settings showed `not_found` because `/api/billing/status`
 didn't exist; it now answers `{billingConfigured:false}`. Verified locally with
 curl (draft, scheduled post with image and alt text) and redeployed staging.
 Still to confirm in the browser: composer, scheduling, calendar drag, media preview.
+
+**CSP fix (2026-11-16).** The Worker's policy said `style-src 'self'`, stricter than the
+Docker app (helmet's default also allows `'unsafe-inline'` and https styles). FullCalendar
+couldn't inject its styles, so calendar events couldn't be dragged. Policy now matches
+Docker's. Telegram publishing was confirmed working on staging (a 403 was the account's
+chat id being the bot itself).

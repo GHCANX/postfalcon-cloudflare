@@ -31,6 +31,8 @@ export default defineConfig(({ mode }) => {
         // Set with `cf workers secrets update`; see README "Secrets".
         SESSION_SECRET: bindings.secret(),
         SETUP_TOKEN: bindings.secret(),
+        // Deployed Version ID/timestamp for the admin overview (no GitHub check).
+        VERSION_METADATA: bindings.versionMetadata(),
         MEDIA: bindings.r2({ name: `postfalcon-${suffix}-media` }),
         R2_BUDGET: bindings.json({
           // One file, uploaded in chunks (R2 multipart). Images and any single-request upload stay under maxDirectUploadBytes.

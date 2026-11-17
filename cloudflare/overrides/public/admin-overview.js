@@ -182,20 +182,136 @@ function renderEmail(email) {
 }
 
 function renderBackups(backups) {
-  document.getElementById('backups-note').textContent = backups?.note || '';
-  // pg_dump does not exist here: D1 Time Travel is the restore path (see the note).
+  document.getElementById('backups-note').textContent =
+    'No pg_dump here: the database is D1, restored with Time Travel (dashboard → D1 → the database → Time Travel, up to 7 days back).';
   document.getElementById('backup-now').hidden = true;
   const table = document.getElementById('backup-rows').closest('.admin-table-wrap');
   if (table) table.hidden = true;
   const restore = table && table.nextElementSibling;
-  if (restore && restore.classList.contains('platform-setup')) restore.hidden = true;
+  if (restore && restore.classList.contains('platform-setup')) {
+    restore.hidden = false;
+    restore.innerHTML = `
+      <summary>How to restore from Time Travel</summary>
+      <p>In the Cloudflare dashboard open <strong>D1 → the database → Time Travel</strong>, pick a point before the problem, and restore. Everything after that point is replaced — including posts that may already have gone out, so afterwards turn overdue scheduled posts back into drafts before they can publish twice:</p>
+      <p><code>UPDATE posts SET status = 'draft' WHERE status IN ('scheduled','posting') AND scheduled_for &lt; now();</code></p>
+      <p>Run it from <code>cf d1 query &lt;database-id&gt; --command "…"</code> or the dashboard's D1 console. Media in R2 is not part of the restore.</p>`;
+  }
   const dir = document.getElementById('backup-dir');
-  if (dir) dir.textContent = 'D1 Time Travel (dashboard → D1 → project → Time Travel)';
+  if (dir) dir.textContent = 'D1 Time Travel';
+}
+
+// Alerts (lib/alerts.ts, via /api/admin/alerts[/check]): problems admins are or
+// will be emailed about, checked by the 15-minute maintenance pass.
+function renderAlerts(data) {
+  const list = document.getElementById('alerts-list');
+  list.innerHTML = data.alerts.length
+    ? data.alerts.map((a) => checkItem('error', a.title, `${a.detail || ''} Since ${when(a.active_since)}.`)).join('')
+    : checkItem('ok', 'No problems right now', '');
+  let note = 'Checked every 15 minutes; admins are emailed when a problem starts, daily while it lasts, and when it clears.';
+  if (!data.emailsOn) note = 'Checked every 15 minutes. Alert emails are off (Admin → Settings), so problems only show here.';
+  else if (!data.emailConfigured) note += " Email isn't set up on this server, so they're only recorded here.";
+  document.getElementById('alerts-note').textContent = note;
+}
+
+async function loadAlerts() {
+  try {
+    renderAlerts(await apiJson('/api/admin/alerts'));
+  } catch (err) {
+    document.getElementById('alerts-list').innerHTML = checkItem('warn', "Couldn't load alerts", err.message);
+  }
+}
+
+const alertsBtn = document.getElementById('alerts-check');
+alertsBtn.addEventListener(
+  'click',
+  withLoading(alertsBtn, 'Checking…', async () => {
+    try {
+      const result = await apiJson('/api/admin/alerts/check', { method: 'POST' });
+      renderAlerts(result);
+      const sent = result.emailedTo && result.emailedTo.length ? ` Emailed ${result.emailedTo.length} admin(s).` : '';
+      const active = result.alerts.length;
+      showToast(`${active ? `${active} problem(s) active.` : 'No problems found.'}${sent}`, active ? 'warning' : 'success');
+    } catch (err) {
+      showToast(err.message);
+    }
+  })
+);
+
+// Failed posts across the board (GET /api/admin/failed-posts), retried alone or all shown.
+let failedPostIds = [];
+
+async function loadFailedPosts() {
+  const body = document.getElementById('publishing-failures');
+  const params = new URLSearchParams({ hours: document.getElementById('failed-hours').value });
+  const platform = document.getElementById('failed-platform').value;
+  if (platform) params.set('platform', platform);
+  try {
+    const posts = await apiJson(`/api/admin/failed-posts?${params}`);
+    failedPostIds = posts.map((f) => f.id);
+    const retryAll = document.getElementById('failed-retry-all');
+    retryAll.disabled = posts.length === 0;
+    retryAll.textContent = posts.length ? `Retry all ${posts.length} shown` : 'Retry all shown';
+    body.innerHTML = rowsOrEmpty(
+      posts.map(
+        (f) =>
+          `<tr><td class="nowrap">${when(f.updated_at)}</td><td class="nowrap">${escapeHtml(f.platform)}</td><td>${escapeHtml(
+            f.display_name || ''
+          )}</td><td>${escapeHtml(f.email || '')}</td><td>${escapeHtml((f.error_message || '').slice(0, 300))}</td><td class="nowrap"><button type="button" class="btn-secondary" data-retry-post="${
+            f.id
+          }">Retry</button></td></tr>`
+      ),
+      6,
+      'No failed posts in this window.'
+    );
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="6" class="empty">Couldn't load failed posts: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function retryPosts(ids, confirmMessage) {
+  if (confirmMessage && !(await confirmDialog(confirmMessage, { confirmText: 'Retry' }))) return;
+  try {
+    const { retried } = await apiJson('/api/admin/failed-posts/retry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    showToast(`${retried.length} post${retried.length === 1 ? '' : 's'} queued again; they go out within a minute.`, 'success');
+    loadFailedPosts();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+const failedPlatform = document.getElementById('failed-platform');
+failedPlatform.innerHTML += ['mastodon', 'bluesky', 'telegram', 'instagram', 'tiktok']
+  .map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`)
+  .join('');
+document.getElementById('failed-hours').addEventListener('change', loadFailedPosts);
+failedPlatform.addEventListener('change', loadFailedPosts);
+document.getElementById('failed-retry-all').addEventListener('click', () =>
+  retryPosts(failedPostIds, `Retry all ${failedPostIds.length} failed posts shown? They go out on the next scheduler run.`)
+);
+document.getElementById('publishing-failures').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-retry-post]');
+  if (btn) retryPosts([Number(btn.dataset.retryPost)]);
+});
+
+// Version: the deployed Worker Version id (no GitHub comparison on Workers).
+function renderVersion(version) {
+  const list = document.getElementById('version-status');
+  if (!version) {
+    list.innerHTML = checkItem('warn', 'Version metadata unavailable', 'The VERSION_METADATA binding is not present in this deployment.');
+    return;
+  }
+  list.innerHTML = checkItem('ok', `Deployed version ${version.id.slice(0, 8)}`, `Uploaded ${when(version.timestamp)}. Database migrations show under Setup → Scheduler counts.`);
 }
 
 async function loadOverview() {
   document.getElementById('overview-loading').hidden = true;
   document.getElementById('overview-content').hidden = false;
+  loadAlerts();
+  loadFailedPosts();
   try {
     const data = await apiJson('/api/admin/overview');
     renderSetup(data);
@@ -204,29 +320,14 @@ async function loadOverview() {
     renderStorage(data.r2);
     renderEmail(data.email || { configured: false, deliveries: [] });
     renderBackups(data.backups);
+    renderVersion(data.version);
   } catch (err) {
     document.getElementById('overview-loading').textContent = 'Failed to load the overview.';
     showToast(err.message);
     return;
   }
-  // Not ported yet: alerts, failed-post actions, version check, business tiles.
-  hideSection('alerts-list');
-  hideSection('version-status');
+  // Not ported: business tiles (single-owner instance, no billing).
   hideSection('business-tiles');
-  // The failed-posts block sits inside the Publishing section: hide its heading,
-  // hint, filter and table, but keep the by-platform and reconnect tables.
-  const failedForm = document.getElementById('failed-filter');
-  if (failedForm) {
-    // Hide from the "Failed posts" subhead through its table (stops before the
-    // next h3, "Accounts needing reconnect").
-    let first = failedForm;
-    while (first.previousElementSibling && (first.previousElementSibling.classList.contains('hint') || first.previousElementSibling.tagName === 'H3')) {
-      first = first.previousElementSibling;
-    }
-    let last = failedForm.nextElementSibling;
-    while (last && last.tagName !== 'H3') last = last.nextElementSibling;
-    for (let el = first; el && el !== last; el = el.nextElementSibling) el.hidden = true;
-  }
 }
 
 const testEmailForm = document.getElementById('test-email-form');

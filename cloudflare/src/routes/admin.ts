@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 
 import { type AppEnv, requireAuth } from "../lib/auth";
 import { ADAPTERS } from "../platforms";
+import { activeAlerts, alertEmailsOn, checkAlerts } from "../lib/alerts";
 import { mailConfigured, sendMail } from "../lib/mailer";
 import { scheduleNextOccurrence } from "../lib/recurrence";
 import { iso } from "./accounts";
@@ -124,6 +125,8 @@ adminRoutes.get("/overview", async (context) => {
       deliveries: deliveries.results.map((row) => ({ ...row, created_at: iso(row.created_at) })),
     },
     backups: { note: "D1 Time Travel keeps 7 days of point-in-time restore on the Free plan; scheduled R2 exports are not set up yet." },
+    // The deployed Worker Version (id/timestamp), when the binding is present.
+    version: context.env.VERSION_METADATA ? { id: context.env.VERSION_METADATA.id, timestamp: context.env.VERSION_METADATA.timestamp } : null,
   });
 });
 
@@ -198,4 +201,77 @@ adminRoutes.post("/posts/:id/resolve", async (context) => {
 
   if (action === "mark_posted") await scheduleNextOccurrence(database, id).catch(() => undefined);
   return context.json(row);
+});
+
+// --- Failed posts ------------------------------------------------------------
+// Overview -> Publishing: the owner's failures in a window, retried in bulk the
+// same way the owner's own retry works (back to 'scheduled' with a fresh
+// schedule revision so the next reconciliation binds a new Workflow instance).
+
+const FAILED_WINDOWS: Record<string, number> = { "1": 3600, "24": 86400, "168": 7 * 86400 };
+const MAX_RETRY_IDS = 500;
+
+adminRoutes.get("/failed-posts", async (context) => {
+  const hours = context.req.query("hours") ?? "24";
+  const windowSeconds = FAILED_WINDOWS[hours] ?? FAILED_WINDOWS["24"]!;
+  const platform = context.req.query("platform")?.slice(0, 40) || null;
+  const since = Math.floor(Date.now() / 1000) - windowSeconds;
+  const { results } = await context.env.DB
+    .prepare(
+      `SELECT posts.id, posts.updated_at, posts.error_message, social_accounts.platform,
+              social_accounts.display_name, users.email
+         FROM posts
+         JOIN social_accounts ON social_accounts.id = posts.social_account_id
+         JOIN users ON users.id = posts.user_id
+        WHERE posts.status = 'failed' AND posts.updated_at > ?
+          AND (? IS NULL OR social_accounts.platform = ?)
+        ORDER BY posts.updated_at DESC LIMIT 500`,
+    )
+    .bind(since, platform, platform)
+    .all<{ id: number; updated_at: number; error_message: string | null; platform: string; display_name: string; email: string }>();
+  return context.json(results.map((row) => ({ ...row, updated_at: iso(row.updated_at) })));
+});
+
+adminRoutes.post("/failed-posts/retry", async (context) => {
+  const body = (await context.req.json().catch(() => null)) as { ids?: unknown } | null;
+  const ids = Array.isArray(body?.ids) ? body.ids.filter((id): id is number => Number.isSafeInteger(id) && (id as number) > 0).slice(0, MAX_RETRY_IDS) : [];
+  if (ids.length === 0) return context.json({ error: "validation_error", details: [{ path: "ids", message: `1-${MAX_RETRY_IDS} post ids` }] }, 400);
+  // json_each keeps this one statement under D1's bound-parameter limit.
+  const { results } = await context.env.DB
+    .prepare(
+      `UPDATE posts SET status = 'scheduled', scheduled_for = unixepoch(), schedule_revision = schedule_revision + 1,
+              workflow_instance_id = NULL, error_message = NULL, updated_at = unixepoch()
+        WHERE status = 'failed' AND updated_at > unixepoch() - ?
+          AND id IN (SELECT value FROM json_each(?))
+        RETURNING id`,
+    )
+    .bind(7 * 86400, JSON.stringify(ids))
+    .all<{ id: number }>();
+  return context.json({ retried: results.map((row) => row.id) });
+});
+
+// --- Alerts ------------------------------------------------------------------
+// lib/alerts.ts semantics on D1: current problems, emailed once on start, daily
+// while active, once on resolve (unless instance_settings turns emails off).
+
+adminRoutes.get("/alerts", async (context) => {
+  const database = context.env.DB;
+  const [alerts, emailsOn] = await Promise.all([activeAlerts(database), alertEmailsOn(database)]);
+  return context.json({
+    alerts: alerts.map((a) => ({ ...a, active_since: iso(a.active_since), notified_at: a.notified_at === null ? null : iso(a.notified_at) })),
+    emailsOn,
+    emailConfigured: mailConfigured(context.env),
+  });
+});
+
+adminRoutes.post("/alerts/check", async (context) => {
+  const result = await checkAlerts(context.env);
+  const database = context.env.DB;
+  const [alerts, emailsOn] = await Promise.all([activeAlerts(database), alertEmailsOn(database)]);
+  return context.json({
+    ...result,
+    alerts: alerts.map((a) => ({ ...a, active_since: iso(a.active_since), notified_at: a.notified_at === null ? null : iso(a.notified_at) })),
+    emailsOn,
+    emailConfigured: mailConfigured(context.env),
+  });
 });

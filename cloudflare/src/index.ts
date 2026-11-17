@@ -25,6 +25,7 @@ import { postRoutes } from "./routes/posts";
 import { notFoundPage, pageRoutes } from "./routes/pages";
 import { onboardingRoutes } from "./routes/onboarding";
 import { adminRoutes } from "./routes/admin";
+import { checkAlerts } from "./lib/alerts";
 import { analyticsRoutes } from "./routes/analytics";
 import { webhookRoutes } from "./routes/webhooks";
 import { oauthRoutes } from "./routes/oauth";
@@ -197,7 +198,9 @@ async function runMaintenance(env: Env): Promise<void> {
   await Promise.all([purgeExpiredSessions(env.DB), purgeRateLimits(env.DB), purgeOAuthStates(env.DB), purgeWebhookDeliveries(env.DB),
     sweepUnreferencedMedia(env.DB, env.MEDIA, env.R2_BUDGET),
     sweepStaleUploads(env),
-    resumeBudgetHolds(env.DB, env.R2_BUDGET.maxClassBOperationsPerMonth)]);
+    resumeBudgetHolds(env.DB, env.R2_BUDGET.maxClassBOperationsPerMonth),
+    checkAlerts(env).catch((error: unknown) => console.error(JSON.stringify({ event: "alerts_check_failed", error: errorMessage(error) }))),
+  ]);
 }
 
 app.get("/healthz", async (context) => {

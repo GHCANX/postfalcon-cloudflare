@@ -219,13 +219,10 @@ app.get("/healthz", async (context) => {
   }
 });
 
-app.get("/", (context) =>
-  context.html(`<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Postfalcon Cloudflare</title></head>
-  <body><main><h1>Postfalcon Cloudflare foundation</h1><p>The Cloudflare deployment path is isolated from the existing Docker service while feature parity is built.</p></main></body>
-</html>`),
-);
+// The root always goes to the login page; the pages router's own `/` route is
+// shadowed by this handler, so the redirect lives here. A signed-in visitor is
+// bounced on to the dashboard by the login route itself.
+app.get("/", (context) => context.redirect("/login"));
 
 app.route("/", pageRoutes);
 

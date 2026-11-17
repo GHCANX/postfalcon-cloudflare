@@ -18,12 +18,21 @@ export default defineConfig(({ mode }) => {
       compatibilityFlags: ["nodejs_compat"],
       workersDev: true,
       previewUrls: true,
+      // The public hostname. Staging-only for now: a production Worker must not
+      // try to claim a domain already attached to postfalcon-staging.
+      domains: isStaging ? ["socialmedia.endlesscarousel.pink"] : [],
       assets: {
         notFoundHandling: "none",
         runWorkerFirst: ["/", "/login", "/setup", "/signup", "/forgot-password", "/reset-password", "/dashboard", "/analytics", "/accounts", "/settings", "/admin", "/admin/overview", "/admin/platforms", "/admin/activity", "/admin/settings", "/robots.txt", "/api/*", "/uploads/*", "/mcp", "/healthz"],
       },
       env: {
         APP_PROFILE: bindings.text("self-hosted-single-user"),
+        // Mailgun sending identity (not secret) and the public origin adapters
+        // hand to platforms that fetch media (Instagram). Declared here so
+        // dashboard-set vars aren't dropped on the next deploy.
+        MAILGUN_DOMAIN: bindings.text("mg.endlesscarousel.pink"),
+        MAILGUN_FROM: bindings.text("Lu <Lu@endlesscarousel.pink>"),
+        PUBLIC_BASE_URL: bindings.text("https://socialmedia.endlesscarousel.pink"),
         DB: bindings.d1({
           name: `postfalcon-${suffix}`,
           ...(isStaging ? { id: "153ee2ab-906e-4dd9-a41c-52bfc4c8bbdc" } : {}),

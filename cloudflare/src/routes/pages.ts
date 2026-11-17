@@ -65,7 +65,9 @@ function guestPage(name: string, extra: (context: Context<AppEnv>) => Record<str
   };
 }
 
-pageRoutes.get("/", async (context) => context.redirect((await sessionUser(context)) ? "/dashboard" : "/login"));
+// The root always goes to the login page; a signed-in visitor is bounced on to
+// the dashboard by the login route itself.
+pageRoutes.get("/", (context) => context.redirect("/login"));
 pageRoutes.get("/login", guestPage("login"));
 pageRoutes.get("/forgot-password", guestPage("forgot-password"));
 pageRoutes.get("/reset-password", guestPage("reset-password", (context) => ({ token: context.req.query("token") ?? "" })));

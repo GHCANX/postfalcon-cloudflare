@@ -1,4 +1,5 @@
 import { ADAPTERS } from "../platforms";
+import { isPlatformPaused, workerPlatform } from "./platform-settings";
 import { PublishError, type PublishFailureKind, type PublishMedia, type PublishPost } from "../platforms/types";
 import type { ClaimedPost } from "./delivery";
 import { saveAccountTokens } from "./oauth-refresh";
@@ -61,6 +62,12 @@ export async function publishClaimedPost(env: Env, claim: ClaimedPost): Promise<
 
   const adapter = ADAPTERS[row.platform];
   if (!adapter) return { kind: "no_adapter", platform: row.platform };
+  // Switched off in Admin → Platforms: fail clearly instead of publishing. Nothing
+  // was sent, so "rejected" is honest and the post can be retried once it's back on.
+  if (await isPlatformPaused(env.DB, row.platform)) {
+    const label = workerPlatform(row.platform)?.label ?? row.platform;
+    return { kind: "failed", failure: "rejected", message: `${label} is switched off in Admin → Platforms; turn it back on and retry the post.` };
+  }
   if (!row.access_token) return { kind: "failed", failure: "auth", message: "The account has no stored credential; reconnect it." };
 
   const { results: files } = await env.DB

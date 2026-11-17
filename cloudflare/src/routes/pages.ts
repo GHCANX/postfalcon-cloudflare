@@ -5,6 +5,7 @@ import { ownerExists } from "./auth";
 import { type AppEnv, type AuthUser, sessionUser } from "../lib/auth";
 import { mailConfigured } from "../lib/mailer";
 import { adminSetupStatus, onboardingStatus } from "../lib/onboarding";
+import { platformStates } from "../lib/platform-settings";
 import { renderView } from "../lib/views";
 import { ASSET_VERSION } from "../views/generated";
 
@@ -14,8 +15,6 @@ import { ASSET_VERSION } from "../views/generated";
  * signup or billing, so `/` is just the way in.
  */
 export const pageRoutes = new Hono<AppEnv>();
-
-const PLATFORMS_ON_ACCOUNTS_PAGE = ["mastodon", "bluesky", "telegram"];
 
 function baseLocals(context: Context<AppEnv>, user: AuthUser | null): Record<string, unknown> {
   return {
@@ -102,27 +101,24 @@ function adminPage(name: string, extra: (context: Context<AppEnv>, user: AuthUse
 
 pageRoutes.get("/admin", (context) => context.redirect("/admin/overview"));
 pageRoutes.get("/admin/overview", adminPage("admin-overview"));
+pageRoutes.get("/admin/platforms", adminPage("admin-platforms"));
 pageRoutes.get("/analytics", appPage("analytics"));
-// A platform that needs a developer app is offered once its credentials are set.
-const TIKTOK_ENTRY = {
-  id: "tiktok",
-  label: "TikTok",
-  color: "#111111",
-  status: "live",
-  connect: "oauth",
-  connectPath: "/api/tiktok/connect",
-  hint: "Connect via TikTok. Posts must have a video attached.",
-};
 
 pageRoutes.get(
   "/accounts",
-  appPage("accounts", (context) => {
-    const env = context.env;
-    const instagram = Boolean(env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET);
-    const tiktok = Boolean(env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET);
+  appPage("accounts", async (context) => {
+    // Offered = switched on in Admin → Platforms AND its secrets are set.
+    // Hand-built connect blocks cover mastodon/instagram/telegram/bluesky;
+    // the `platforms` list only needs the OAuth entries rendered generically
+    // (today: TikTok). Instagram stays out of it — the view links it to the
+    // Facebook flow itself.
+    const states = await platformStates(context.env, context.env.DB);
+    const offered = states.filter((p) => p.offered);
     return {
-      platforms: tiktok ? [TIKTOK_ENTRY] : [],
-      enabledIds: [...PLATFORMS_ON_ACCOUNTS_PAGE, ...(instagram ? ["instagram"] : []), ...(tiktok ? ["tiktok"] : [])],
+      platforms: offered
+        .filter((p) => p.connect === "oauth" && p.connectPath && p.id !== "instagram")
+        .map((p) => ({ id: p.id, label: p.label, color: p.color, status: p.status, connect: p.connect, connectPath: p.connectPath, hint: p.setup?.steps ?? null })),
+      enabledIds: offered.map((p) => p.id),
       lockedIds: [],
     };
   }),

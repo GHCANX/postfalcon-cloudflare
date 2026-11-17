@@ -7,6 +7,7 @@ import { freshAccessToken } from "../lib/oauth-refresh";
 import { base64Url, randomBytes } from "../lib/crypto";
 import { GRAPH } from "../platforms/instagram";
 import { queryCreatorInfo, TIKTOK_API, tiktokRefreshRequest } from "../platforms/tiktok";
+import { isPlatformPaused } from "../lib/platform-settings";
 
 /**
  * Browser-navigated OAuth connect flows, mounted under /api/<platform>. They
@@ -72,6 +73,7 @@ async function mastodonApp(
 }
 
 oauthRoutes.get("/mastodon/connect", async (context) => {
+  if (await isPlatformPaused(context.env.DB, "mastodon")) return context.text("Not found", 404);
   const instance = normalizeInstance(context.req.query("instance"));
   if (!instance) return context.text("Enter a valid Mastodon instance domain, e.g. mastodon.social", 400);
 
@@ -96,6 +98,7 @@ oauthRoutes.get("/mastodon/connect", async (context) => {
 });
 
 oauthRoutes.get("/mastodon/callback", async (context) => {
+  if (await isPlatformPaused(context.env.DB, "mastodon")) return context.text("Not found", 404);
   const code = context.req.query("code");
   const state = context.req.query("state");
   const user = context.get("user");
@@ -179,6 +182,7 @@ async function getJson(url: string, init: RequestInit = {}): Promise<{ ok: boole
 const FACEBOOK_SCOPE = "pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish";
 
 oauthRoutes.get("/facebook/connect", async (context) => {
+  if (await isPlatformPaused(context.env.DB, "instagram")) return context.text("Not found", 404);
   const appId = context.env.FACEBOOK_APP_ID;
   if (!appId || !context.env.FACEBOOK_APP_SECRET) return context.text("Instagram is not configured on this server.", 503);
   const state = await createOAuthState(context.env.DB, context.get("user").id, "facebook", {});
@@ -193,6 +197,7 @@ oauthRoutes.get("/facebook/connect", async (context) => {
 });
 
 oauthRoutes.get("/facebook/callback", async (context) => {
+  if (await isPlatformPaused(context.env.DB, "instagram")) return context.text("Not found", 404);
   const code = context.req.query("code");
   const state = context.req.query("state");
   const user = context.get("user");
@@ -250,6 +255,7 @@ oauthRoutes.get("/facebook/callback", async (context) => {
 const TIKTOK_SCOPES = "user.info.basic,video.publish,video.upload";
 
 oauthRoutes.get("/tiktok/connect", async (context) => {
+  if (await isPlatformPaused(context.env.DB, "tiktok")) return context.text("Not found", 404);
   const clientKey = context.env.TIKTOK_CLIENT_KEY;
   if (!clientKey || !context.env.TIKTOK_CLIENT_SECRET) return context.text("TikTok is not configured on this server.", 503);
   const codeVerifier = base64Url(randomBytes(48));
@@ -267,6 +273,7 @@ oauthRoutes.get("/tiktok/connect", async (context) => {
 });
 
 oauthRoutes.get("/tiktok/callback", async (context) => {
+  if (await isPlatformPaused(context.env.DB, "tiktok")) return context.text("Not found", 404);
   const code = context.req.query("code");
   const state = context.req.query("state");
   const user = context.get("user");

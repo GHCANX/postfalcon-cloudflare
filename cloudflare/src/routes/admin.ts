@@ -3,6 +3,8 @@ import { Hono, type Context } from "hono";
 import { type AppEnv, requireAuth } from "../lib/auth";
 import { ADAPTERS } from "../platforms";
 import { activeAlerts, alertEmailsOn, checkAlerts } from "../lib/alerts";
+import { platformCredentialsSet, platformStates, secretConfigured, workerPlatform } from "../lib/platform-settings";
+import { publicOrigin } from "../lib/oauth";
 import { mailConfigured, sendMail } from "../lib/mailer";
 import { scheduleNextOccurrence } from "../lib/recurrence";
 import { iso } from "./accounts";
@@ -274,4 +276,82 @@ adminRoutes.post("/alerts/check", async (context) => {
     emailsOn,
     emailConfigured: mailConfigured(context.env),
   });
+});
+
+// --- Platforms ----------------------------------------------------------------
+// On/off per platform (platform_settings). Offered = switched on AND secrets
+// set; off also 404s the connect routes and fails due posts (lib/platform-settings).
+
+adminRoutes.get("/platforms", async (context) => {
+  const database = context.env.DB;
+  const origin = publicOrigin(context.req.raw);
+  const [states, accounts, scheduled, saved] = await Promise.all([
+    platformStates(context.env, database),
+    database.prepare("SELECT platform, count(*) AS n FROM social_accounts GROUP BY platform").all<{ platform: string; n: number }>(),
+    database
+      .prepare(
+        `SELECT social_accounts.platform, count(*) AS n FROM posts
+           JOIN social_accounts ON social_accounts.id = posts.social_account_id
+          WHERE posts.status = 'scheduled' GROUP BY social_accounts.platform`,
+      )
+      .all<{ platform: string; n: number }>(),
+    database.prepare("SELECT platform, updated_at FROM platform_settings").all<{ platform: string; updated_at: number }>(),
+  ]);
+  const accountsBy = new Map(accounts.results.map((row) => [row.platform, row.n]));
+  const scheduledBy = new Map(scheduled.results.map((row) => [row.platform, row.n]));
+  const savedBy = new Map(saved.results.map((row) => [row.platform, row.updated_at]));
+
+  return context.json(
+    states.map((platform) => ({
+      id: platform.id,
+      label: platform.label,
+      built: true,
+      enabled: platform.enabled,
+      defaultEnabled: true,
+      switchedAt: savedBy.has(platform.id) ? iso(savedBy.get(platform.id)!) : null,
+      sharesConnectWith: platform.id === "instagram" ? "Facebook Login" : null,
+      credentialsNeeded: platform.requiredSecrets.length ? platform.requiredSecrets.join(", ") : null,
+      credentialsSet: platformCredentialsSet(context.env, platform),
+      connectedAccounts: accountsBy.get(platform.id) ?? 0,
+      scheduledPosts: scheduledBy.get(platform.id) ?? 0,
+      setup: platform.setup
+        ? {
+            console: platform.setup.console,
+            callbackUrls: platform.setup.callbacks.map((path) => `${origin}${path}`),
+            env: [...platform.setup.secrets, ...(platform.setup.optionalSecrets ?? [])].map((name) => ({
+              name,
+              set: secretConfigured(context.env, name),
+              optional: (platform.setup!.optionalSecrets ?? []).includes(name),
+            })),
+            steps: platform.setup.steps,
+          }
+        : null,
+    })),
+  );
+});
+
+adminRoutes.post("/platforms/:id", async (context) => {
+  const id = context.req.param("id");
+  const platform = workerPlatform(id);
+  if (!platform) return context.json({ error: "not found" }, 404);
+  const body = (await context.req.json().catch(() => null)) as { enabled?: unknown; reset?: unknown } | null;
+  const database = context.env.DB;
+
+  if (body?.reset === true) {
+    await database.prepare("DELETE FROM platform_settings WHERE platform = ?").bind(id).run();
+  } else if (typeof body?.enabled === "boolean") {
+    await database
+      .prepare(
+        `INSERT INTO platform_settings (platform, enabled, updated_at, updated_by) VALUES (?, ?, unixepoch(), ?)
+         ON CONFLICT (platform) DO UPDATE SET enabled = excluded.enabled, updated_at = unixepoch(), updated_by = excluded.updated_by`,
+      )
+      .bind(id, body.enabled ? 1 : 0, context.get("user").id)
+      .run();
+  } else {
+    return context.json({ error: "validation_error", details: [{ path: "enabled", message: "enabled boolean or reset" }] }, 400);
+  }
+
+  const states = await platformStates(context.env, database);
+  const state = states.find((p) => p.id === id)!;
+  return context.json({ id, enabled: state.enabled, offered: state.offered });
 });

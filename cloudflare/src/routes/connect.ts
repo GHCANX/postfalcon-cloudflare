@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { type AppEnv, requireAuth } from "../lib/auth";
+import { isPlatformPaused } from "../lib/platform-settings";
 
 /**
  * Token-style platform connections (the user supplies a credential and we
@@ -76,6 +77,7 @@ function recordConnected(database: D1Database, executionCtx: { waitUntil(promise
 // Bluesky: a handle plus an app password (Settings -> App Passwords). Verified
 // by logging in right now; the adapter logs in fresh on every publish.
 connectRoutes.post("/bluesky/connect", async (context) => {
+  if (await isPlatformPaused(context.env.DB, "bluesky")) return context.json({ error: "not_found" }, 404);
   const body = await jsonBody(context.req.raw);
   const handle = text(body.handle, 255);
   const appPassword = text(body.app_password, 64);
@@ -107,6 +109,7 @@ connectRoutes.post("/bluesky/connect", async (context) => {
 // Telegram: a bot token plus the channel it posts to. Verified with getMe and
 // getChat before anything is stored.
 connectRoutes.post("/telegram/connect", async (context) => {
+  if (await isPlatformPaused(context.env.DB, "telegram")) return context.json({ error: "not_found" }, 404);
   const body = await jsonBody(context.req.raw);
   const token = text(body.token, 200);
   const chatId = text(body.chat_id, 255);

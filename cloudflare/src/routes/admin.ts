@@ -312,6 +312,7 @@ adminRoutes.get("/platforms", async (context) => {
       switchedAt: savedBy.has(platform.id) ? iso(savedBy.get(platform.id)!) : null,
       sharesConnectWith: platform.id === "instagram" ? "Facebook Login" : null,
       credentialsNeeded: platform.requiredSecrets.length ? platform.requiredSecrets.join(", ") : null,
+      credentialsMissing: platform.requiredSecrets.filter((name) => !secretConfigured(context.env, name)),
       credentialsSet: platformCredentialsSet(context.env, platform),
       connectedAccounts: accountsBy.get(platform.id) ?? 0,
       scheduledPosts: scheduledBy.get(platform.id) ?? 0,

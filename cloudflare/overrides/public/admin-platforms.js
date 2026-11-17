@@ -1,6 +1,36 @@
 // Admin Platforms for the Workers runtime: switch each platform on or off
-// (/api/admin/platforms). Same page contract as the Docker script; only the
-// credential wording differs (Worker secrets, not .env).
+// (/api/admin/platforms). Same page contract as the Docker script; the
+// differences are Worker-secrets wording, missing credentials listed one per
+// line, and a roomier table layout (the Docker markup marks most columns
+// nowrap, which starves the Platform column).
+
+(function () {
+  const style = document.createElement('style');
+  style.textContent = `
+    table.platforms-table { table-layout: auto; width: 100%; }
+    table.platforms-table th, table.platforms-table td { white-space: normal; vertical-align: top; }
+    table.platforms-table td.platform-col { min-width: 15rem; }
+    table.platforms-table td.count-col, table.platforms-table td.action-col { white-space: nowrap; }
+    .cred-list { margin: 2px 0 0; padding-left: 1.1rem; }
+    .cred-list li { font-family: ui-monospace, monospace; font-size: 0.85em; }
+    .setup-secrets { list-style: none; margin: 4px 0 0; padding: 0; }
+    .setup-secrets li { margin: 2px 0; }
+  `;
+  document.head.appendChild(style);
+
+  const table = document.querySelector('table.admin-table');
+  if (table) table.classList.add('platforms-table');
+
+  // The shared hint still talks about .env and restarting the app.
+  document.querySelectorAll('.admin-section .hint').forEach((hint) => {
+    if (hint.textContent.includes('.env')) {
+      hint.innerHTML = hint.innerHTML
+        .replace(/app credentials in <code>\.env<\/code>/, 'app credentials set as Worker secrets')
+        .replace(/ \(restart the app after editing <code>\.env<\/code>\)/, ' (secrets apply on the next deploy)')
+        .replace(/editing <code>\.env<\/code>/, 'editing Worker secrets');
+    }
+  });
+})();
 
 function statusCell(p) {
   if (!p.built) return '<span class="admin-chip is-off">Not built yet</span>';
@@ -12,7 +42,13 @@ function statusCell(p) {
 function credentialsCell(p) {
   if (!p.built) return '—';
   if (!p.credentialsNeeded) return 'Not needed';
-  return p.credentialsSet ? 'Set' : `<span class="admin-bad">Missing</span> <code>${escapeHtml(p.credentialsNeeded)}</code>`;
+  if (p.credentialsSet) return 'Set';
+  const missing = Array.isArray(p.credentialsMissing) && p.credentialsMissing.length
+    ? p.credentialsMissing
+    : p.credentialsNeeded.split(',').map((name) => name.trim());
+  return `<span class="admin-bad">Missing</span><ul class="cred-list">${missing
+    .map((name) => `<li><code>${escapeHtml(name)}</code></li>`)
+    .join('')}</ul>`;
 }
 
 function actionsCell(p) {
@@ -25,7 +61,7 @@ function actionsCell(p) {
 }
 
 // "How to set up": developer console, callback URL(s) to register there (copyable), and which
-// which secrets are set (never their values).
+// Worker secrets are set (never their values).
 function setupDetails(p) {
   const setup = p.setup;
   if (!p.built || !setup) return '';
@@ -48,14 +84,15 @@ function setupDetails(p) {
   }
   if (setup.env.length) {
     parts.push(
-      `<p>Worker secrets: ${setup.env
-        .map(
-          (v) =>
-            `<code>${escapeHtml(v.name)}</code> ${
-              v.set ? '✓' : v.optional ? '<span class="hint">(optional)</span>' : '<span class="admin-bad">not set</span>'
-            }`
-        )
-        .join(', ')}</p>`
+      `<p>Worker secrets (set with <code>cf workers secrets update NAME</code>):</p>` +
+        `<ul class="setup-secrets">${setup.env
+          .map(
+            (v) =>
+              `<li><code>${escapeHtml(v.name)}</code> ${
+                v.set ? '✓' : v.optional ? '<span class="hint">(optional)</span>' : '<span class="admin-bad">not set</span>'
+              }</li>`
+          )
+          .join('')}</ul>`
     );
   }
   return `<details class="platform-setup"><summary>How to set up</summary>${parts.join('')}</details>`;
@@ -70,9 +107,9 @@ async function loadPlatforms() {
     body.innerHTML = platforms
       .map(
         (p) =>
-          `<tr><td>${escapeHtml(p.label)}${p.sharesConnectWith ? ` <span class="hint">(connects with ${escapeHtml(p.sharesConnectWith)})</span>` : ''}${setupDetails(p)}</td><td class="nowrap">${statusCell(
+          `<tr><td class="platform-col">${escapeHtml(p.label)}${p.sharesConnectWith ? ` <span class="hint">(connects with ${escapeHtml(p.sharesConnectWith)})</span>` : ''}${setupDetails(p)}</td><td class="count-col">${statusCell(
             p
-          )}</td><td class="nowrap">${credentialsCell(p)}</td><td class="nowrap">${p.connectedAccounts}</td><td class="nowrap">${p.scheduledPosts}</td><td class="nowrap">${actionsCell(p)}</td></tr>`
+          )}</td><td class="count-col">${credentialsCell(p)}</td><td class="count-col">${p.connectedAccounts}</td><td class="count-col">${p.scheduledPosts}</td><td class="action-col">${actionsCell(p)}</td></tr>`
       )
       .join('');
   } catch (err) {

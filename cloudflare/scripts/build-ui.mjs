@@ -6,7 +6,7 @@
 //     + overrides/public/*, which replace same-named files.
 // Run by `npm run build:ui`; the outputs are git-ignored.
 import ejs from "ejs";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -80,4 +80,20 @@ if (existsSync(calendar)) {
 }
 const overrides = join(root, "overrides/public");
 if (existsSync(overrides)) cpSync(overrides, out, { recursive: true });
+// overrides/append/<path> is concatenated onto the copied file of the same
+// path, so the Docker script stays the source and the Worker can extend it.
+const appendDir = join(root, "overrides/append");
+if (existsSync(appendDir)) {
+  for (const file of readdirSync(appendDir, { recursive: true })) {
+    if (typeof file !== "string") continue;
+    const extra = join(appendDir, file);
+    if (!statSync(extra).isFile()) continue;
+    const target = join(out, file);
+    if (!existsSync(target)) {
+      console.warn(`append overlay ${file} has no copied file to extend`);
+      continue;
+    }
+    writeFileSync(target, `${readFileSync(target, "utf8").replace(/\s*$/, "")}\n\n${readFileSync(extra, "utf8").replace(/^\s*/, "")}`);
+  }
+}
 console.log(`UI built: ${entries.length} templates, static files in public/`);

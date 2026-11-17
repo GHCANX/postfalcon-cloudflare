@@ -97,7 +97,7 @@ mediaApi.post("/uploads", async (context) => {
     if (error instanceof R2BudgetExceededError) return context.json({ error: "storage_limit_reached", message: "Media storage is full." }, 507);
     throw error;
   }
-  let upload: R2MultipartUpload;
+  let upload: R2MultipartUpload | undefined;
   try {
     upload = await context.env.MEDIA.createMultipartUpload(key, { httpMetadata: { contentType } });
     const id = crypto.randomUUID();
@@ -107,6 +107,12 @@ mediaApi.post("/uploads", async (context) => {
       .run();
     return context.json({ id, part_size: UPLOAD_PART_BYTES, part_count: partCount(size, UPLOAD_PART_BYTES) }, 201);
   } catch (error) {
+    // The row is what the sweep aborts. If it was never written, abort the
+    // multipart here so the incomplete object is not left in the bucket.
+    if (upload) {
+      await reserveR2Budget(context.env.DB, budget, { classAOperations: 1 }).catch(() => undefined);
+      await upload.abort().catch(() => undefined);
+    }
     await releaseR2StorageReservation(context.env.DB, { mediaBytes: size, totalBytes: size });
     throw error;
   }

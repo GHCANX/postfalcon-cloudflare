@@ -6,8 +6,8 @@ export const IMAGE_TYPES: Record<string, string> = {
   "image/webp": "webp",
   "image/gif": "gif",
 };
-// Video shares the image path and the same hard size caps (25 MiB per file), so only
-// short clips fit. Larger files and resumable uploads are a later, separately costed step.
+// Video uses the same stored-file path as images. A single request stays at
+// maxDirectUploadBytes; larger videos go through the chunked upload API, up to maxObjectBytes.
 export const VIDEO_TYPES: Record<string, string> = {
   "video/mp4": "mp4",
   "video/quicktime": "mov",

@@ -960,3 +960,27 @@ Chunked-upload groundwork is committed but unexercised (R2 multipart API under
 a 25 MiB single-request cap). Remaining work and the admin-page port, in order, are written
 step by step in `cloudflare/HANDOFF_VIDEO_AND_ADMIN.md`. Nothing from this slice is deployed;
 migration 0011 must be applied to staging before the next deploy.
+
+### 300 MB video uploads: exercised locally (2026-11-16)
+
+Finished the chunked-upload slice from the handoff. The browser shim landed as
+`cloudflare/overrides/append/common.js` (build-ui.mjs gained an `overrides/append/`
+mechanism that concatenates onto the copied `public/common.js`): `apiUpload` is
+wrapped so a `/api/v1/posts` form whose `media` files total over 24 MiB is sent
+as chunked uploads first (POST create, 32 MiB PUT parts with XHR progress,
+complete), then re-posted with `media_ids`; `alt_texts` stays positionally
+aligned and any failure DELETEs the upload. Verified against `cf dev` with curl:
+70 MB file -> create/3 parts/complete -> draft post -> `Range` reads return 206;
+wrong part Content-Length -> 400; incomplete complete -> 409; abort returns the
+reserved bytes to `r2_budget_state`; 26 MiB image -> 413, 301 MiB video -> 413,
+direct body over 25 MiB -> 413; multipart `media_ids` + `alt_texts` round-trips.
+`sweepStaleUploads`' selection query was verified against the local D1 (the
+sweep itself runs on the 15-minute cron; its per-row abort is the same
+`abortUpload` the DELETE route exercises). TikTok chunked publishing verified
+with a stubbed-fetch script (`cloudflare/scripts/adapters.test.ts`, bundled with
+esbuild): 200 MiB -> `total_chunk_count` 12 of 16 MiB with sequential
+`Content-Range` and a 24 MiB last chunk; 30 MiB and the 64 MiB boundary go as a
+single `read()` chunk. Docs updated (README "Media uploads"; the admin overview
+`objectMiB` now reads 300 from `maxObjectBytes`). **Not deployed**: staging needs
+migration 0011 first, then the workflow suffix bump to `-v14`, then
+`deploy:staging` — all on the user's go-ahead.

@@ -84,6 +84,27 @@ password reset, email verification, "post needs review" and "reconnect this
 account". Every send is recorded (recipient, category, status; never the body)
 in `email_deliveries`.
 
+## Media uploads
+
+Images (JPEG/PNG/WebP/GIF) and video (MP4/MOV/WebM) share one stored-file path.
+Cloudflare caps a single request body at 100 MB, so files are limited by type:
+
+- **Images and any single-request upload: 25 MiB.** `POST /api/v1/media` takes
+  the raw file as the body.
+- **Video: up to 300 MiB (300 MiB = `maxObjectBytes`), uploaded in parts.** The
+  browser does this automatically when a post's attachments exceed ~24 MiB;
+  the API is `POST /api/v1/media/uploads` `{content_type, size}` →
+  `PUT /api/v1/media/uploads/:id/parts/:n` (raw body, exact Content-Length,
+  32 MiB parts) → `POST .../complete`, or `DELETE .../uploads/:id` to abort.
+  The declared size is reserved against the R2 budget up front and returned on
+  abort; uploads idle for 24 h are swept.
+
+The budget caps still apply on top: 7 GiB of media and 8 GiB total per instance
+(about 23 maximum-size videos), plus monthly Class A/B operation ceilings in
+`R2_BUDGET` (`cloudflare.config.ts`). Each chunked upload costs Class A
+operations for the create, every part, and the complete (parts + 2); each
+public read by a platform costs one Class B.
+
 ## Instagram and TikTok
 
 Both are off until their developer-app credentials exist (the Accounts page only
@@ -101,10 +122,11 @@ secrets set with `cf workers secrets update <NAME> --worker <worker> --type secr
   images are accepted: the Docker app converts other formats with `sharp`, which
   Workers cannot run, so a PNG/WebP/GIF post fails with a clear message. Image
   ratio limits (4:5 to 1.91:1) are enforced by Instagram, not adjusted here.
-- **TikTok** posts video only, and this deployment cannot upload video yet, so a
-  TikTok post fails with "needs a video attached". Connecting, token refresh, the
-  composer's creator-info panel and the publish flow are in place. Until the
-  app passes TikTok's Direct Post audit, posts can only be private.
+- **TikTok** posts video only (MP4, MOV, or WebM). Files up to 64 MiB go in one
+  chunk; larger files are read from R2 in 16 MiB ranges and the last chunk
+  absorbs the remainder. Connecting, token refresh, the composer's creator-info
+  panel and the publish flow are in place. Until the app passes TikTok's Direct
+  Post audit, posts can only be private.
 
 ## API surface (staging)
 
@@ -118,7 +140,7 @@ cookie requests need the `x-csrf-token` from `GET /api/csrf-token`.
 | Webhooks | `GET/POST /v1/webhooks`, `DELETE /v1/webhooks/:id`, `GET /v1/webhooks/:id/deliveries` |
 | Analytics / MCP | `GET /v1/analytics/summary`, `POST /mcp` (Bearer only) |
 | Accounts | `GET /social-accounts`, `DELETE /social-accounts/:id`, `POST /bluesky/connect`, `POST /telegram/connect`, `GET /mastodon/connect?instance=` (+ callback) |
-| Media | `POST /v1/media` (raw image body, `Content-Type: image/*`, max 25 MiB), public `GET /uploads/<uuid>.<ext>` |
+| Media | `POST /v1/media` (raw file body, max 25 MiB), chunked `POST /v1/media/uploads` + `PUT .../parts/:n` + `POST .../complete` for video up to 300 MiB, public `GET /uploads/<uuid>.<ext>` (byte ranges) |
 | Posts | `GET/POST /v1/posts`, `GET/PATCH/DELETE /v1/posts/:id` (JSON; attach uploads with `media_ids`) |
 
 Publishing: Mastodon, Telegram and Bluesky have Worker adapters. A failure
@@ -128,8 +150,8 @@ post is `failed`; a timeout or 5xx on the final create goes to
 
 ## Current boundary
 
-The only deployed behavior at this stage is a D1-backed health endpoint and a
-per-minute scheduled invocation record. It proves the runtime, binding, logging,
-and cron path without activating any social publishing, OAuth callback, media,
-or user route. Those features remain served only by Docker until their own
-migration and verification steps are complete.
+Staging runs the ported UI and API: auth, the composer with chunked media
+uploads, Mastodon/Telegram/Bluesky publishing, Instagram and TikTok connect
+flows (both unverified against the real platforms — no developer apps yet),
+Mailgun email when its secrets are set, webhooks, and the per-minute publish
+cron. See `CLOUDFLARE_PLAN.md` for what is verified and what is not.

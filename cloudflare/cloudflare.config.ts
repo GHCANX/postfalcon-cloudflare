@@ -27,11 +27,8 @@ export default defineConfig(({ mode }) => {
       },
       env: {
         APP_PROFILE: bindings.text("self-hosted-single-user"),
-        // Mailgun sending identity (not secret) and the public origin adapters
-        // hand to platforms that fetch media (Instagram). Declared here so
-        // dashboard-set vars aren't dropped on the next deploy.
-        MAILGUN_DOMAIN: bindings.text("mg.endlesscarousel.pink"),
-        MAILGUN_FROM: bindings.text("Lu <Lu@endlesscarousel.pink>"),
+        // Public origin adapters hand to platforms that fetch media (Instagram).
+        // Mailgun values stay secrets (set via `cf workers secrets update`).
         PUBLIC_BASE_URL: bindings.text("https://socialmedia.endlesscarousel.pink"),
         DB: bindings.d1({
           name: `postfalcon-${suffix}`,

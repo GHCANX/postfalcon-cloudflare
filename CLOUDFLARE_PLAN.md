@@ -1042,3 +1042,15 @@ Workflow suffix bumped `-v13` → `-v14` in `cloudflare.config.ts` because
 deployed**: staging still needs migrations 0011 (and none new — `admin_alerts`,
 `server_errors`, `platform_settings`, `instance_settings` already existed),
 then `deploy:staging`, all on the user's go-ahead.
+
+### Staging deploy (2026-11-17)
+
+Applied migration `0011_media_uploads.sql` to staging D1, then
+`npm run deploy:staging`. Worker `postfalcon-staging` is live at
+https://postfalcon-staging.rowenparedes.workers.dev (Version ID
+557609e1-3880-4055-9f0d-9d1253e02912) with workflow
+`postfalcon-staging-post-delivery-v14`. `/healthz` ok; `/admin/*` redirects
+signed-out visitors to /login. Mailgun secrets are still unset on staging, so
+the overview Email block shows the `cf workers secrets update` setup commands
+until they are added. Part A2 (Instagram Reels) is now unblocked pending a
+real Meta app + business account.

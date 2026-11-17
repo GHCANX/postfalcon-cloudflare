@@ -105,3 +105,12 @@ apiUpload = function apiUpload(path, formData, onProgress) {
   }
   return uploadMediaInChunks(formData, files, onProgress);
 };
+
+// Single-owner Worker profile: the Docker sidebar's Customers link and the
+// "Activity & billing" label don't apply (no Stripe, no customer accounts).
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('a[href="/admin/customers"]').forEach((a) => a.remove());
+  document.querySelectorAll('a[href="/admin/activity"]').forEach((a) => {
+    if (a.textContent.includes('billing')) a.textContent = 'Activity';
+  });
+});

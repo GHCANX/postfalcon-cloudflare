@@ -6,6 +6,7 @@ import { type AppEnv, type AuthUser, sessionUser } from "../lib/auth";
 import { mailConfigured } from "../lib/mailer";
 import { adminSetupStatus, onboardingStatus } from "../lib/onboarding";
 import { platformStates } from "../lib/platform-settings";
+import { readInstanceSettings, resolveSettings } from "../lib/instance-settings";
 import { renderView } from "../lib/views";
 import { ASSET_VERSION } from "../views/generated";
 
@@ -16,10 +17,20 @@ import { ASSET_VERSION } from "../views/generated";
  */
 export const pageRoutes = new Hono<AppEnv>();
 
+// instance_settings is read once per page request (like the Docker app's
+// res.locals) so Admin → Settings site name shows up everywhere.
+pageRoutes.use("*", async (context, next) => {
+  context.set(
+    "instanceSettings",
+    resolveSettings(await readInstanceSettings(context.env.DB).catch(() => ({}))),
+  );
+  await next();
+});
+
 function baseLocals(context: Context<AppEnv>, user: AuthUser | null): Record<string, unknown> {
   return {
     assetVersion: ASSET_VERSION,
-    siteName: "Postfalcon",
+    siteName: context.get("instanceSettings")?.siteName ?? "Postfalcon",
     logoUrl: null,
     publicSite: false,
     blogEnabled: false,
@@ -103,6 +114,7 @@ pageRoutes.get("/admin", (context) => context.redirect("/admin/overview"));
 pageRoutes.get("/admin/overview", adminPage("admin-overview"));
 pageRoutes.get("/admin/platforms", adminPage("admin-platforms"));
 pageRoutes.get("/admin/activity", adminPage("admin-activity"));
+pageRoutes.get("/admin/settings", adminPage("admin-settings"));
 pageRoutes.get("/analytics", appPage("analytics"));
 
 pageRoutes.get(

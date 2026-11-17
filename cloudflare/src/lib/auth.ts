@@ -4,6 +4,7 @@ import { sha256Hex } from "./crypto";
 import { passesCsrfCheck } from "./csrf";
 import { hitRateLimit } from "./rate-limit";
 import { readSession } from "./sessions";
+import type { InstanceSettings } from "./instance-settings";
 
 export type AuthUser = {
   id: number;
@@ -21,6 +22,8 @@ export type AppEnv = {
     authKind: "session" | "bearer";
     /** Set for a cookie session only: the stored identifier of that session. */
     sessionTokenHash: string | null;
+    /** Resolved instance settings for this request (set by the pages router). */
+    instanceSettings: InstanceSettings;
   };
 };
 

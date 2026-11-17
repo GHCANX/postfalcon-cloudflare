@@ -5,6 +5,7 @@ import { ADAPTERS } from "../platforms";
 import { activeAlerts, alertEmailsOn, checkAlerts } from "../lib/alerts";
 import { platformCredentialsSet, platformStates, secretConfigured, workerPlatform } from "../lib/platform-settings";
 import { publicOrigin } from "../lib/oauth";
+import { clearInstanceSetting, readInstanceSettings, resolveSettings, saveInstanceSetting } from "../lib/instance-settings";
 import { mailConfigured, sendMail } from "../lib/mailer";
 import { scheduleNextOccurrence } from "../lib/recurrence";
 import { iso } from "./accounts";
@@ -422,3 +423,42 @@ adminRoutes.get("/product-events", (context) =>
     equalsParam: "eventName",
   }),
 );
+
+// --- Settings -----------------------------------------------------------------
+// Site name and alert-email toggle only: this profile has no public site,
+// logo upload, sign-up modes or invites (those stay Docker-side).
+
+async function settingsResponse(context: Context<AppEnv>) {
+  const stored = await readInstanceSettings(context.env.DB);
+  const resolved = resolveSettings(stored);
+  return {
+    siteName: resolved.siteName,
+    siteNameDefault: "Postfalcon",
+    alertEmails: resolved.alertEmails,
+  };
+}
+
+adminRoutes.get("/settings", async (context) => context.json(await settingsResponse(context)));
+
+adminRoutes.post("/settings", async (context) => {
+  const body = (await context.req.json().catch(() => null)) as { site_name?: unknown; alert_emails?: unknown } | null;
+  if (!body || typeof body !== "object") return context.json({ error: "validation_error" }, 400);
+  const database = context.env.DB;
+  const userId = context.get("user").id;
+
+  if (body.site_name !== undefined) {
+    if (body.site_name === null || body.site_name === "") await clearInstanceSetting(database, "site_name");
+    else if (typeof body.site_name === "string" && body.site_name.trim()) {
+      await saveInstanceSetting(database, "site_name", body.site_name.trim().slice(0, 40), userId);
+    } else {
+      return context.json({ error: "validation_error", details: [{ path: "site_name", message: "must be a string" }] }, 400);
+    }
+  }
+  if (body.alert_emails !== undefined) {
+    if (body.alert_emails !== "on" && body.alert_emails !== "off") {
+      return context.json({ error: "validation_error", details: [{ path: "alert_emails", message: "must be 'on' or 'off'" }] }, 400);
+    }
+    await saveInstanceSetting(database, "alert_emails", body.alert_emails, userId);
+  }
+  return context.json(await settingsResponse(context));
+});

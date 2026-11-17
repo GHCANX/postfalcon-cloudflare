@@ -984,3 +984,61 @@ single `read()` chunk. Docs updated (README "Media uploads"; the admin overview
 `objectMiB` now reads 300 from `maxObjectBytes`). **Not deployed**: staging needs
 migration 0011 first, then the workflow suffix bump to `-v14`, then
 `deploy:staging` — all on the user's go-ahead.
+
+### Admin pages port, steps 1–2: overview (2026-11-17)
+
+`/admin/overview` now renders for the owner (others redirect). New:
+`src/lib/alerts.ts` ports `lib/alerts.js` — problems (stale scheduler, overdue
+posts, server errors, R2 budget, failed backups-equivalent checks) email the
+owner once on start, daily while active, once on resolve, gated by the
+`alert_emails` instance setting; checks run from `runMaintenance` and
+`POST /api/admin/alerts/check`. Endpoints added: `/api/admin/alerts`,
+`/alerts/check`, `/failed-posts` (+`/retry`, maps failed posts back to
+scheduled), `/version` (deployed Version ID from VERSION_METADATA; no GitHub
+comparison), `/email/test` alias, and the overview payload gained an `email`
+block (Mailgun configured/domain/region + recent `email_deliveries`, never
+keys or bodies). The overview JS (`overrides/public/admin-overview.js`)
+renders alerts, failed posts with bulk retry, version, the Mailgun setup
+commands when unconfigured, and an honest D1 Time Travel note in place of the
+pg_dump backup UI. Verified locally with curl; commits `fed4ef0`, `958dee1`.
+
+### Admin pages port, step 3: Platforms (2026-11-17)
+
+`src/lib/platform-settings.ts` is the Worker registry/settings layer:
+`platformStates()` merges `platform_settings` rows (migration-free — the
+table already existed) with secret readiness, and `isPlatformPaused()` /
+`workerPlatform()` gate behavior. "Offered" = switched on AND required
+secrets set; the Accounts page (`pages.ts`) now lists only offered platforms
+with setup hints. Off also 404s the connect routes (`connect.ts`, `oauth.ts`
+for mastodon/facebook/instagram/tiktok) and makes `publishClaimedPost` fail
+due posts with a clear "switched off in Admin → Platforms" message instead of
+publishing. `GET/POST /api/admin/platforms(/:id)` returns the shape
+`admin-platforms.js` expects (counts, credentialsSet per secret name,
+callback URLs, setup steps) with `cf workers secrets update` wording via
+`overrides/public/admin-platforms.js`. Verified: toggle off → connect 404 →
+reset → offered again. Commit `c2f04b2`.
+
+### Admin pages port, steps 4–5: Activity and Settings (2026-11-17)
+
+`src/lib/error-log.ts` ports `lib/errorLog.js`: unhandled request errors
+(`app.onError`), failed scheduled jobs, and unexpected publish errors
+(`publish.ts`, still classified `ambiguous` → `review_required`, never
+auto-retried) write to `server_errors`, rate-capped at 60/min and pruned
+after 30 days in `runMaintenance`. `GET /api/admin/errors` plus paginated
+`/auth-events` and `/product-events` (email/event/ date filters, same shape
+as Docker's `paginatedQuery`). `/admin/activity` renders with
+`overrides/public/admin-activity.js`, which removes the Billing and Page
+visits sections (no Stripe, nothing writes `page_visits`). `/admin/settings`
+serves site name + alert-email toggle backed by `instance_settings`
+(`src/lib/instance-settings.ts`); `pages.ts` reads settings once per request
+so the site name reaches every view's `siteName` local. Logo upload,
+public-site switch, sign-up modes and the Customers page stay Docker-side;
+the settings script hides those sections and a `common.js` append removes
+the Customers sidebar link and the "billing" wording. Commits `dac39be`,
+`f8d5a79`.
+
+Workflow suffix bumped `-v13` → `-v14` in `cloudflare.config.ts` because
+`lib/publish.ts` changed (platform-off check + error logging). **Nothing is
+deployed**: staging still needs migrations 0011 (and none new — `admin_alerts`,
+`server_errors`, `platform_settings`, `instance_settings` already existed),
+then `deploy:staging`, all on the user's go-ahead.

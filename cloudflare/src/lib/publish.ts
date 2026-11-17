@@ -1,5 +1,6 @@
 import { ADAPTERS } from "../platforms";
 import { isPlatformPaused, workerPlatform } from "./platform-settings";
+import { recordServerError } from "./error-log";
 import { PublishError, type PublishFailureKind, type PublishMedia, type PublishPost } from "../platforms/types";
 import type { ClaimedPost } from "./delivery";
 import { saveAccountTokens } from "./oauth-refresh";
@@ -133,6 +134,12 @@ export async function publishClaimedPost(env: Env, claim: ClaimedPost): Promise<
     }
     // An unclassified error could have happened after the platform accepted
     // the post, so it is treated as ambiguous rather than retried.
+    recordServerError(env.DB, {
+      message: `publish_failed:${row.platform}`,
+      err: error,
+      method: "WORKFLOW",
+      url: `/posts/${row.id}`,
+    });
     return { kind: "failed", failure: "ambiguous", message: `Unexpected publishing error: ${String(error).slice(0, 400)}` };
   }
 }

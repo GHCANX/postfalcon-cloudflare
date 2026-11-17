@@ -26,6 +26,7 @@ import { notFoundPage, pageRoutes } from "./routes/pages";
 import { onboardingRoutes } from "./routes/onboarding";
 import { adminRoutes } from "./routes/admin";
 import { checkAlerts } from "./lib/alerts";
+import { pruneServerErrors, recordRequestError, recordServerError } from "./lib/error-log";
 import { analyticsRoutes } from "./routes/analytics";
 import { webhookRoutes } from "./routes/webhooks";
 import { oauthRoutes } from "./routes/oauth";
@@ -199,6 +200,7 @@ async function runMaintenance(env: Env): Promise<void> {
     sweepUnreferencedMedia(env.DB, env.MEDIA, env.R2_BUDGET),
     sweepStaleUploads(env),
     resumeBudgetHolds(env.DB, env.R2_BUDGET.maxClassBOperationsPerMonth),
+    pruneServerErrors(env.DB).catch(() => undefined),
     checkAlerts(env).catch((error: unknown) => console.error(JSON.stringify({ event: "alerts_check_failed", error: errorMessage(error) }))),
   ]);
 }
@@ -234,14 +236,16 @@ app.notFound((context) => {
 });
 
 app.onError((error, context) => {
+  const path = new URL(context.req.url).pathname;
   console.error(
     JSON.stringify({
       event: "unhandled_request_error",
       error: errorMessage(error),
       method: context.req.method,
-      path: new URL(context.req.url).pathname,
+      path,
     }),
   );
+  recordRequestError(context.env, error, context.req.method, path);
   return context.json({ error: "internal_error" }, 500);
 });
 
@@ -258,27 +262,32 @@ export default {
       context.waitUntil(
         refreshPostMetrics(env.DB)
           .then((result) => console.log(JSON.stringify({ event: "metrics_refresh_completed", ...result })))
-          .catch((error: unknown) => console.error(JSON.stringify({ event: "metrics_refresh_run_failed", error: errorMessage(error) }))),
+          .catch((error: unknown) => {
+            console.error(JSON.stringify({ event: "metrics_refresh_run_failed", error: errorMessage(error) }));
+            recordServerError(env.DB, { message: "metrics_refresh_run_failed", err: error });
+          }),
       );
     }
     if (tick.getUTCMinutes() % 15 === 0) {
       context.waitUntil(
-        runMaintenance(env).catch((error: unknown) =>
-          console.error(JSON.stringify({ event: "scheduled_maintenance_failed", scheduledFor, error: errorMessage(error) })),
-        ),
+        runMaintenance(env).catch((error: unknown) => {
+          console.error(JSON.stringify({ event: "scheduled_maintenance_failed", scheduledFor, error: errorMessage(error) }));
+          recordServerError(env.DB, { message: "scheduled_maintenance_failed", err: error });
+        }),
       );
     }
     context.waitUntil(
       runReconciliation(env, context.exports.ScheduledPostDelivery, scheduledFor)
-        .catch((error: unknown) =>
+        .catch((error: unknown) => {
           console.error(
             JSON.stringify({
               event: "scheduled_reconciliation_record_failed",
               scheduledFor,
               error: errorMessage(error),
             }),
-          ),
-        ),
+          );
+          recordServerError(env.DB, { message: "scheduled_reconciliation_record_failed", err: error });
+        }),
     );
   },
 } satisfies ExportedHandler<Env>;

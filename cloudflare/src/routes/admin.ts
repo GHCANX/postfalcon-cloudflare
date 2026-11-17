@@ -355,3 +355,70 @@ adminRoutes.post("/platforms/:id", async (context) => {
   const state = states.find((p) => p.id === id)!;
   return context.json({ id, enabled: state.enabled, offered: state.offered });
 });
+
+// --- Activity -----------------------------------------------------------------
+
+adminRoutes.get("/errors", async (context) => {
+  const limit = Math.min(Math.max(Number(context.req.query("limit")) || 100, 1), 500);
+  const { listServerErrors } = await import("../lib/error-log");
+  return context.json(await listServerErrors(context.env.DB, limit));
+});
+
+// Port of routes/admin.js paginatedQuery for the Activity tables that exist in
+// the Worker schema. Filters: email (substring), one equality column, from/to
+// on created_at (ISO date or datetime, compared as unix seconds).
+async function paged(context: Context<AppEnv>, spec: {
+  select: string;
+  from: string;
+  emailColumn?: string;
+  equalsColumn?: string;
+  emailParam?: string;
+  equalsParam?: string;
+}) {
+  const database = context.env.DB;
+  const page = Math.max(1, Number(context.req.query("page")) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(context.req.query("pageSize")) || 25));
+
+  const where: string[] = [];
+  const binds: unknown[] = [];
+  const email = context.req.query(spec.emailParam ?? "email");
+  if (spec.emailColumn && email) {
+    where.push(`${spec.emailColumn} LIKE ?`);
+    binds.push(`%${email}%`);
+  }
+  const equals = context.req.query(spec.equalsParam ?? "eventType");
+  if (spec.equalsColumn && equals) {
+    where.push(`${spec.equalsColumn} = ?`);
+    binds.push(equals);
+  }
+  for (const [param, op] of [["from", ">="], ["to", "<="]] as const) {
+    const raw = context.req.query(param);
+    const parsed = raw ? Date.parse(raw) : NaN;
+    if (!Number.isNaN(parsed)) {
+      where.push(`created_at ${op} ?`);
+      binds.push(Math.floor(parsed / 1000));
+    }
+  }
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  const total = await database.prepare(`SELECT count(*) AS n FROM ${spec.from} ${clause}`).bind(...binds).first<{ n: number }>();
+  const rows = await database
+    .prepare(`SELECT ${spec.select} FROM ${spec.from} ${clause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .bind(...binds, pageSize, (page - 1) * pageSize)
+    .all();
+  return context.json({ rows: rows.results, total: total?.n ?? 0, page, pageSize });
+}
+
+adminRoutes.get("/auth-events", (context) =>
+  paged(context, { select: "*", from: "auth_events", emailColumn: "email", equalsColumn: "event_type", equalsParam: "eventType" }),
+);
+
+adminRoutes.get("/product-events", (context) =>
+  paged(context, {
+    select: "pe.*, u.email",
+    from: "product_events pe LEFT JOIN users u ON u.id = pe.user_id",
+    emailColumn: "u.email",
+    equalsColumn: "pe.event_name",
+    equalsParam: "eventName",
+  }),
+);

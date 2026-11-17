@@ -102,6 +102,7 @@ function adminPage(name: string, extra: (context: Context<AppEnv>, user: AuthUse
 pageRoutes.get("/admin", (context) => context.redirect("/admin/overview"));
 pageRoutes.get("/admin/overview", adminPage("admin-overview"));
 pageRoutes.get("/admin/platforms", adminPage("admin-platforms"));
+pageRoutes.get("/admin/activity", adminPage("admin-activity"));
 pageRoutes.get("/analytics", appPage("analytics"));
 
 pageRoutes.get(

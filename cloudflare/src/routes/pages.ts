@@ -90,6 +90,18 @@ pageRoutes.get(
     adminSetup: await adminSetupStatus(context.env, user.id, user.isAdmin),
   })),
 );
+/** A page for the signed-in owner who is also an admin; everyone else is redirected. */
+function adminPage(name: string, extra: (context: Context<AppEnv>, user: AuthUser) => Promise<Record<string, unknown>> | Record<string, unknown> = () => ({})) {
+  return async (context: Context<AppEnv>) => {
+    const user = await sessionUser(context);
+    if (!user) return context.redirect("/login");
+    if (!user.isAdmin) return context.redirect("/dashboard");
+    return html(context, name, { ...baseLocals(context, user), ...(await extra(context, user)) });
+  };
+}
+
+pageRoutes.get("/admin", (context) => context.redirect("/admin/overview"));
+pageRoutes.get("/admin/overview", adminPage("admin-overview"));
 pageRoutes.get("/analytics", appPage("analytics"));
 // A platform that needs a developer app is offered once its credentials are set.
 const TIKTOK_ENTRY = {

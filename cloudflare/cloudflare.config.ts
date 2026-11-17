@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => {
       previewUrls: true,
       assets: {
         notFoundHandling: "none",
-        runWorkerFirst: ["/", "/login", "/setup", "/signup", "/forgot-password", "/reset-password", "/dashboard", "/analytics", "/accounts", "/settings", "/robots.txt", "/api/*", "/uploads/*", "/mcp", "/healthz"],
+        runWorkerFirst: ["/", "/login", "/setup", "/signup", "/forgot-password", "/reset-password", "/dashboard", "/analytics", "/accounts", "/settings", "/admin", "/admin/overview", "/admin/platforms", "/admin/activity", "/admin/settings", "/robots.txt", "/api/*", "/uploads/*", "/mcp", "/healthz"],
       },
       env: {
         APP_PROFILE: bindings.text("self-hosted-single-user"),

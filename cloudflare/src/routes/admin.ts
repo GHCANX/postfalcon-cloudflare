@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 
 import { type AppEnv, requireAuth } from "../lib/auth";
 import { ADAPTERS } from "../platforms";
@@ -27,7 +27,8 @@ adminRoutes.get("/overview", async (context) => {
   const budget = context.env.R2_BUDGET;
   const now = Math.floor(Date.now() / 1000);
 
-  const [lastRun, posts, reconnect, r2, migrations, owners] = await Promise.all([
+  const dayAgo = now - 24 * 60 * 60;
+  const [lastRun, posts, reconnect, r2, migrations, owners, publishing, deliveries] = await Promise.all([
     database.prepare("SELECT scheduled_for, started_at, completed_at, status, details_json FROM worker_job_runs WHERE job_name = 'reconciliation' ORDER BY id DESC LIMIT 1").first<{ scheduled_for: string; started_at: number; completed_at: number | null; status: string; details_json: string }>(),
     database
       .prepare(
@@ -37,15 +38,31 @@ adminRoutes.get("/overview", async (context) => {
                 count(*) FILTER (WHERE status = 'review_required') AS review_required,
                 count(*) FILTER (WHERE status = 'budget_hold') AS budget_hold,
                 count(*) FILTER (WHERE status = 'failed' AND updated_at >= ?) AS failed_7d,
-                count(*) FILTER (WHERE status = 'posted' AND posted_at >= ?) AS posted_7d
+                count(*) FILTER (WHERE status = 'posted' AND posted_at >= ?) AS posted_7d,
+                count(*) FILTER (WHERE status = 'draft') AS drafts
            FROM posts`,
       )
       .bind(now - OVERDUE_SECONDS, now - 7 * 86400, now - 7 * 86400)
       .first<Record<string, number>>(),
-    database.prepare("SELECT id, platform, display_name, reconnect_reason FROM social_accounts WHERE needs_reconnect_at IS NOT NULL ORDER BY id").all<{ id: number; platform: string; display_name: string; reconnect_reason: string | null }>(),
+    database.prepare("SELECT id, platform, display_name, reconnect_reason, needs_reconnect_at FROM social_accounts WHERE needs_reconnect_at IS NOT NULL ORDER BY id").all<{ id: number; platform: string; display_name: string; reconnect_reason: string | null; needs_reconnect_at: number }>(),
     database.prepare("SELECT class_a_operations, class_b_operations, media_bytes, total_bytes, period_key FROM r2_budget_state WHERE singleton = 1").first<{ class_a_operations: number; class_b_operations: number; media_bytes: number; total_bytes: number; period_key: string }>(),
     database.prepare("SELECT count(*) AS applied, max(name) AS latest FROM d1_migrations").first<{ applied: number; latest: string | null }>().catch(() => null),
     database.prepare("SELECT count(*) AS n FROM users").first<{ n: number }>(),
+    database
+      .prepare(
+        `SELECT social_accounts.platform,
+                count(*) FILTER (WHERE posts.status = 'posted' AND posts.posted_at >= ?) AS posted,
+                count(*) FILTER (WHERE posts.status = 'failed' AND posts.updated_at >= ?) AS failed
+           FROM posts JOIN social_accounts ON social_accounts.id = posts.social_account_id
+          WHERE posts.posted_at >= ? OR (posts.status = 'failed' AND posts.updated_at >= ?)
+          GROUP BY social_accounts.platform ORDER BY social_accounts.platform`,
+      )
+      .bind(dayAgo, dayAgo, dayAgo, dayAgo)
+      .all<{ platform: string; posted: number; failed: number }>(),
+    // Recipient, category, status and time only — never the message body.
+    database
+      .prepare("SELECT recipient, category, status, error_message, created_at FROM email_deliveries ORDER BY id DESC LIMIT 8")
+      .all<{ recipient: string; category: string; status: string; error_message: string | null; created_at: number }>(),
   ]);
 
   const schedulerAge = lastRun ? now - lastRun.started_at : null;
@@ -95,21 +112,45 @@ adminRoutes.get("/overview", async (context) => {
         }
       : null,
     migrations,
-    publishing: { adapters: Object.keys(ADAPTERS) },
-    email: mailConfigured(context.env)
-      ? { configured: true }
-      : { configured: false, note: "Set MAILGUN_API_KEY, MAILGUN_DOMAIN and MAILGUN_FROM (see README) to receive failure and review emails." },
+    publishing: { adapters: Object.keys(ADAPTERS), byPlatform: publishing.results },
+    email: {
+      configured: mailConfigured(context.env),
+      domain: context.env.MAILGUN_DOMAIN ?? null,
+      region: context.env.MAILGUN_REGION ?? null,
+      from: context.env.MAILGUN_FROM ?? null,
+      note: mailConfigured(context.env)
+        ? null
+        : "Email is off. Workers secrets cannot be set from inside the app; set them once with `cf workers secrets update` (README “Email (Mailgun)”).",
+      deliveries: deliveries.results.map((row) => ({ ...row, created_at: iso(row.created_at) })),
+    },
     backups: { note: "D1 Time Travel keeps 7 days of point-in-time restore on the Free plan; scheduled R2 exports are not set up yet." },
   });
 });
 
-/** Sends one test email to the signed-in admin, to prove the Mailgun settings. */
-adminRoutes.post("/test-email", async (context) => {
+/** Sends one test email to prove the Mailgun settings; the admin page's Email block. */
+async function sendTestEmail(context: Context<AppEnv>) {
   const user = context.get("user");
-  if (!mailConfigured(context.env)) return context.json({ error: "email_not_configured" }, 503);
-  const result = await sendMail(context.env, { to: user.email, userId: user.id, category: "test", subject: "Postfalcon test email", text: "Mailgun is set up correctly." });
-  return result.status === "sent" ? context.json({ sent: true }) : context.json({ sent: false, error: result.error }, 502);
-});
+  if (!mailConfigured(context.env)) {
+    return context.json({ error: "email_not_configured", message: "Email is not configured on this server." }, 503);
+  }
+  const body = (await context.req.json().catch(() => null)) as { to?: unknown } | null;
+  const requested = typeof body?.to === "string" ? body.to.trim() : "";
+  const to = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(requested) ? requested.slice(0, 255) : user.email;
+  const result = await sendMail(context.env, {
+    to,
+    userId: user.id,
+    category: "test",
+    subject: "Postfalcon test email",
+    text: "Mailgun is set up correctly.",
+  });
+  const base = { from: context.env.MAILGUN_FROM ?? null, to };
+  return result.status === "sent"
+    ? context.json({ ...base, sent: true, response: "OK" })
+    : context.json({ ...base, sent: false, response: result.error ?? "send failed", error: result.error }, 502);
+}
+
+adminRoutes.post("/test-email", sendTestEmail);
+adminRoutes.post("/email/test", sendTestEmail);
 
 /** Posts that need a human: ambiguous publishes, and what the delivery audit recorded for each. */
 adminRoutes.get("/review", async (context) => {

@@ -22,9 +22,10 @@ export class D1ExportBackup extends WorkflowEntrypoint<Env, Record<string, never
     try {
       if (!backupConfigured(this.env)) throw new Error("Backup secrets are not set (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID)");
 
-      const bookmark = await step.do("start export", async () => startExport(this.env));
+      const started = await step.do("start export", async () => startExport(this.env));
+      const bookmark = started.bookmark;
 
-      let signedUrl: string | null = null;
+      let signedUrl: string | null = started.signedUrl;
       for (let attempt = 1; attempt <= POLL_ATTEMPTS && !signedUrl; attempt += 1) {
         signedUrl = await step.do(`check export ${attempt}`, async () => pollExport(this.env, bookmark));
         if (!signedUrl) await step.sleep(`wait ${attempt}`, `${POLL_SECONDS} seconds`);

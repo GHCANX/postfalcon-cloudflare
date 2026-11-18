@@ -23,7 +23,15 @@ function exportUrl(env: Env): string {
 type ExportResponse = {
   success?: boolean;
   errors?: { message?: string }[];
-  result?: { at_bookmark?: string; status?: string; filename?: string; signed_url?: string; error?: string };
+  result?: ExportResult;
+};
+type ExportResult = {
+  at_bookmark?: string;
+  status?: string;
+  error?: string;
+  // The live API nests the download under result.result; the docs example shows it flat.
+  result?: { filename?: string; signed_url?: string };
+  signed_url?: string;
 };
 
 async function callExport(env: Env, body: Record<string, unknown>): Promise<ExportResponse["result"]> {
@@ -41,18 +49,21 @@ async function callExport(env: Env, body: Record<string, unknown>): Promise<Expo
   return parsed.result;
 }
 
-/** Starts an export and returns the bookmark that identifies it. */
-export async function startExport(env: Env): Promise<string> {
+function downloadUrl(result: ExportResult | undefined): string | null {
+  if (result?.status === "error") throw new Error(`D1 export failed: ${(result.error ?? "no detail").slice(0, 200)}`);
+  return result?.result?.signed_url ?? result?.signed_url ?? null;
+}
+
+/** Starts an export. It often finishes at once, in which case the download URL is already there. */
+export async function startExport(env: Env): Promise<{ bookmark: string; signedUrl: string | null }> {
   const result = await callExport(env, { output_format: "polling" });
   if (!result?.at_bookmark) throw new Error("D1 export API did not return a bookmark");
-  return result.at_bookmark;
+  return { bookmark: result.at_bookmark, signedUrl: downloadUrl(result) };
 }
 
 /** The finished export's download URL, or null while it is still being produced. */
 export async function pollExport(env: Env, bookmark: string): Promise<string | null> {
-  const result = await callExport(env, { output_format: "polling", current_bookmark: bookmark });
-  if (result?.status === "error") throw new Error(`D1 export failed: ${(result.error ?? "no detail").slice(0, 200)}`);
-  return result?.signed_url ?? null;
+  return downloadUrl(await callExport(env, { output_format: "polling", current_bookmark: bookmark }));
 }
 
 /** Downloads the dump into R2 under backups/ after reserving budget. Returns the stored key and size. */

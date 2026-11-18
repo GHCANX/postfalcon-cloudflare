@@ -21,7 +21,8 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 check("configured needs all three", backupConfigured(ENV) && !backupConfigured({ ...ENV, D1_DATABASE_ID: undefined } as unknown as Env) && !backupConfigured({ ...ENV, CLOUDFLARE_API_TOKEN: "change-me" } as unknown as Env));
 
 reply = () => json({ success: true, result: { at_bookmark: "bm-1", status: "active" } });
-check("start returns the bookmark", (await startExport(ENV)) === "bm-1");
+const started = await startExport(ENV);
+check("start returns the bookmark and no url yet", started.bookmark === "bm-1" && started.signedUrl === null);
 check("start posts polling format to the database's export endpoint with a bearer token",
   calls[0].url === "https://api.cloudflare.com/client/v4/accounts/acct/d1/database/db/export" && calls[0].auth === "Bearer tok-secret" && (calls[0].body as { output_format: string }).output_format === "polling");
 
@@ -30,7 +31,11 @@ check("poll returns null while the export runs", (await pollExport(ENV, "bm-1"))
 check("poll sends the bookmark", (calls[1].body as { current_bookmark: string }).current_bookmark === "bm-1");
 
 reply = () => json({ success: true, result: { status: "complete", signed_url: "https://r2.example/dump.sql" } });
-check("poll returns the signed url when complete", (await pollExport(ENV, "bm-1")) === "https://r2.example/dump.sql");
+check("poll returns the flat signed url", (await pollExport(ENV, "bm-1")) === "https://r2.example/dump.sql");
+reply = () => json({ success: true, result: { at_bookmark: "bm-2", status: "complete", type: "export", result: { filename: "f.sql", signed_url: "https://r2.example/nested.sql" } } });
+check("poll reads the nested url the live API returns", (await pollExport(ENV, "bm-2")) === "https://r2.example/nested.sql");
+const instant = await startExport(ENV);
+check("start returns the url when the export is already complete", instant.signedUrl === "https://r2.example/nested.sql" && instant.bookmark === "bm-2");
 
 reply = () => json({ success: true, result: { status: "error", error: "boom" } });
 check("poll surfaces an export error", await pollExport(ENV, "bm-1").then(() => false, (e: Error) => e.message.includes("boom")));

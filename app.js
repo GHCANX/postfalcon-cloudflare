@@ -37,8 +37,6 @@ import onboardingRouter from './routes/onboarding.js';
 import { isPlatformEnabled } from './lib/platforms.js';
 import { ensurePlatformSettingsLoaded } from './lib/platformSettings.js';
 import pagesRouter from './routes/pages.js';
-import blogRouter from './routes/blog.js';
-import { isBlogEnabled } from './lib/blog.js';
 import { readInstanceSettings, resolveSettings, DEFAULT_SITE_NAME } from './lib/instanceSettings.js';
 import { billingConfigured } from './lib/billing.js';
 import { envConfigured, smtpConfigured } from './lib/config.js';
@@ -65,9 +63,6 @@ if (isProduction) {
   app.set('trust proxy', 1);
 }
 
-// Available to every view without each route needing to pass it — see isBlogEnabled() in
-// lib/blog.js for why a self-hoster would turn this off.
-app.locals.blogEnabled = isBlogEnabled();
 // Defaults for views rendered without the per-request instance settings below (error pages).
 app.locals.siteName = DEFAULT_SITE_NAME;
 app.locals.publicSite = true;
@@ -198,7 +193,6 @@ app.use((req, res, next) => {
       res.locals.siteName = siteName;
       res.locals.logoUrl = logoUrl;
       res.locals.publicSite = publicSite;
-      res.locals.blogEnabled = publicSite && isBlogEnabled();
       next();
     }, next);
 });
@@ -296,10 +290,6 @@ app.use('/api/v1/analytics', requireAuth, apiLimiter, postAnalyticsRouter);
 app.use('/api/v1/webhooks', requireAuth, apiLimiter, requireCapability('webhooks'), webhooksRouter);
 app.use('/api/admin', requireAdmin, adminRouter);
 
-if (isBlogEnabled()) {
-  // Also 404 while Admin -> Settings has the public website off.
-  app.use('/blog', (req, res, next) => (res.locals.blogEnabled ? next() : res.status(404).render('404')), blogRouter);
-}
 app.use('/', pagesRouter);
 
 app.use((req, res) => {

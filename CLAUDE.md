@@ -158,25 +158,6 @@ routes/metaCallbacks.js  Meta's server-to-server Threads callbacks (uninstall, d
                      ahead of csrfProtection with express.urlencoded, no session auth.
 routes/webhooks.js   /api/v1/webhooks CRUD for user-registered outbound webhook endpoints (Team/Pro only,
                      gated by requireCapability('webhooks'))
-content/blog/*.md    The blog — one Markdown file per post (frontmatter: title, slug, description, date,
-                     optional updated/draft/image/heroImage/heroGradient/redirects/tags/author — see
-                     _template.md), read fresh from disk on every request (no DB table, no admin UI, no
-                     caching) so editing a file — including its `slug`, i.e. its URL — takes effect
-                     immediately. lib/blog.js parses them (gray-matter + marked), assigns heading ids and
-                     builds each post's table of contents, and resolves `author` against the AUTHORS map
-                     (placeholder initial-letter avatar until a real photo is set). `image` is card art /
-                     og:image; the post page's own hero banner instead picks, richest first, `heroImage`
-                     (a background-only image — no centerpiece, since one crops badly at hero height) ->
-                     `heroGradient` (two hex colors) -> the same deterministic cardArt() gradient an
-                     imageless post already gets on the /blog grid — see views/blog-post.ejs. routes/blog.js
-                     serves /blog (paginated index) and /blog/:slug. A post's old slug(s) can be listed
-                     under `redirects:` to 301 old URLs to the new one after a rename. routes/pages.js's
-                     /sitemap.xml and /robots.txt are generated from the same list. This is this project's
-                     own marketing content (including posts pitching self-hosting itself), not something a
-                     self-hoster's instance should carry by default — `isBlogEnabled()` in lib/blog.js
-                     (env var `ENABLE_BLOG`, on unless explicitly `"false"`) gates the route mount in
-                     app.js, the sitemap entries, and the nav/footer `Blog` link (via `app.locals.blogEnabled`,
-                     so every view has it without each route passing it explicitly) all from one place.
 routes/analytics.js  Reverse-proxies /stats/* to a self-hosted Umami instance (see docs/analytics-setup.md)
                      so the tracking script/data stay same-origin — mounted with express.raw() BEFORE
                      express.json(), same reasoning as the Stripe webhook. 404s if UMAMI_HOST is unset.
@@ -419,19 +400,6 @@ These aren't enforced by a linter — follow them by hand so the codebase doesn'
   If the platform's API exposes engagement counts, also export `fetchMetrics(post) -> {views, likes,
   comments, shares}` (null for whatever it doesn't report) — scheduler.js picks it up automatically, no
   other change needed for it to show up in Analytics.
-- **New blog post?** Copy `content/blog/_template.md` (a draft — safe to leave in place, it's never listed),
-  fill in `title`/`slug`/`description`/`date`, remove `draft: true` when ready. Optional frontmatter: `tags`
-  (pills on the post + index card), `author` (id into the `AUTHORS` map in `lib/blog.js` — add a person there
-  before referencing them), `image`, `heroImage`/`heroGradient` (the post page's own hero banner —
-  see content/blog/*.md above), `redirects` (old slugs that 301 here after a rename). `##`/`###`
-  headings automatically get anchor ids and populate the "Contents" sidebar — no manual markup needed. No
-  route/view/DB change needed for a new post either way.
-  An SVG `image` also needs a PNG of the same name beside it (link previews don't render SVG; without one the
-  post shares the site-wide `/og-image.png`) — render it with the Edge command in docs/branding/og-image.html.
-- **New author avatar?** Just drop an image at `public/images/authors/<author-id>.jpg` (or `.png`/`.webp`) —
-  matched by the same id used in `AUTHORS`/frontmatter `author:`, re-checked on every request (no caching, no
-  code change). Falls back to a plain initial-letter badge when no file matches. See
-  `public/images/authors/README.md`.
 - **New user-facing message?** `showToast`/`confirmDialog`, never a native dialog.
 - **New color?** A CSS custom property with both a light default and a `[data-theme="dark"]` override.
 - **New external script?** Self-host it under `public/` (or `public/vendor/` via `copy-vendor.js`) — the CSP

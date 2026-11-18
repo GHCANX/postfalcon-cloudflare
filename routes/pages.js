@@ -4,7 +4,6 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { logPageVisit } from '../lib/activityLog.js';
 import { connectablePlatforms, livePlatforms, PLATFORM_IDS, isPlatformOffered } from '../lib/platforms.js';
 import { PLANS, isEntitled, selfHosted, canUsePlatform } from '../lib/billing.js';
-import { listPosts } from '../lib/blog.js';
 import { signupGate } from '../lib/signups.js';
 import { onboardingStatus, adminSetupStatus } from '../lib/onboarding.js';
 
@@ -19,7 +18,6 @@ function planBanner(user) {
 }
 
 // The publicly crawlable pages, in the order they should be listed — used by /sitemap.xml.
-// '/blog' only while the blog is on (res.locals.blogEnabled: ENABLE_BLOG + the public-website switch).
 const STATIC_PAGES = ['/', '/pricing', '/api-docs', '/privacy', '/terms'];
 
 function xmlEscape(value) {
@@ -186,14 +184,10 @@ router.get('/admin/activity', requireAdmin, (req, res) => {
 router.get(
   '/sitemap.xml',
   asyncHandler(async (req, res) => {
-    const blogEnabled = res.locals.blogEnabled;
-    const posts = blogEnabled ? await listPosts() : [];
     const pages = res.locals.publicSite ? STATIC_PAGES : STATIC_PAGES.filter((p) => p !== '/' && p !== '/pricing');
     const base = process.env.BASE_URL;
     const urls = [
       ...pages.map((loc) => ({ loc, lastmod: null })),
-      ...(blogEnabled ? [{ loc: '/blog', lastmod: null }] : []),
-      ...posts.map((p) => ({ loc: `/blog/${p.slug}`, lastmod: (p.updated || p.date).toISOString().slice(0, 10) })),
     ];
     const body =
       `<?xml version="1.0" encoding="UTF-8"?>\n` +

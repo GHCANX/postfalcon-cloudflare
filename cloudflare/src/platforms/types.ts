@@ -54,6 +54,8 @@ export type PublishPost = {
   env: Env;
   externalAccountId: string | null;
   metadata: Record<string, any>;
+  /** Persists changed account metadata (Pinterest's chosen board). */
+  saveMetadata: (metadata: Record<string, any>) => Promise<void>;
   platformOptions: Record<string, any>;
   media: PublishMedia[];
 };
@@ -63,6 +65,11 @@ export type PostMetrics = { views: number | null; likes: number | null; comments
 export type MetricsTarget = {
   platformPostId: string;
   accessToken: string;
+  /** For platforms with expiring access tokens (YouTube, Threads). */
+  refreshToken: string | null;
+  tokenExpiresAt: number | null;
+  saveTokens: (accessToken: string, refreshToken: string | null, expiresAt: number | null) => Promise<void>;
+  env: Env;
   externalAccountId: string | null;
   metadata: Record<string, any>;
 };

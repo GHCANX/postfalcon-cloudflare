@@ -257,7 +257,7 @@ export default {
     // Every 3 hours, at :30 (maintenance runs at :00/:15/:30/:45; this is separate work).
     if (tick.getUTCMinutes() === 30 && tick.getUTCHours() % 3 === 0) {
       context.waitUntil(
-        refreshPostMetrics(env.DB)
+        refreshPostMetrics(env)
           .then((result) => console.log(JSON.stringify({ event: "metrics_refresh_completed", ...result })))
           .catch((error: unknown) => {
             console.error(JSON.stringify({ event: "metrics_refresh_run_failed", error: errorMessage(error) }));

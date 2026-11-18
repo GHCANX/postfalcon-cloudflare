@@ -109,13 +109,15 @@ export class ScheduledPostDelivery extends WorkflowEntrypoint<Env, DeliveryParam
             const post = await this.env.DB
               .prepare(
                 `SELECT posts.id, social_accounts.platform, posts.platform_post_id, social_accounts.access_token,
+                        social_accounts.refresh_token, social_accounts.token_expires_at, posts.social_account_id,
                         social_accounts.external_account_id, social_accounts.metadata_json
                    FROM posts JOIN social_accounts ON social_accounts.id = posts.social_account_id WHERE posts.id = ?`,
               )
               .bind(params.postId)
-              .first<{ id: number; platform: string; platform_post_id: string | null; access_token: string | null; external_account_id: string | null; metadata_json: string }>();
+              
+              .first<{ id: number; platform: string; platform_post_id: string | null; access_token: string | null; refresh_token: string | null; token_expires_at: number | null; social_account_id: number; external_account_id: string | null; metadata_json: string }>();
             if (!post?.platform_post_id) return false;
-            return refreshOne(this.env.DB, { ...post, platform_post_id: post.platform_post_id });
+            return refreshOne(this.env, { ...post, platform_post_id: post.platform_post_id });
           })
           .catch(() => undefined);
       }

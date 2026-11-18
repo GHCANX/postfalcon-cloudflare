@@ -105,17 +105,37 @@ The budget caps still apply on top: 7 GiB of media and 8 GiB total per instance
 operations for the create, every part, and the complete (parts + 2); each
 public read by a platform costs one Class B.
 
-## Instagram and TikTok
+## Platform apps (Meta, Threads, YouTube, Pinterest, LinkedIn, TikTok)
 
-Both are off until their developer-app credentials exist (the Accounts page only
+Each is off until their developer-app credentials exist (the Accounts page only
 offers a platform whose secrets are set). Same mechanism as Mailgun: undeclared
 secrets set with `cf workers secrets update <NAME> --worker <worker> --type secret_text --text <value>`.
 
 | Platform | Secrets | Redirect URI to register |
 | --- | --- | --- |
-| Instagram (via Facebook Login) | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, optionally `FACEBOOK_CONFIG_ID` (Business-type Meta app), and `PUBLIC_BASE_URL` | `<origin>/api/facebook/callback` |
+| Facebook Pages and Instagram (one Facebook Login) | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, optionally `FACEBOOK_CONFIG_ID` (Business-type Meta app), and `PUBLIC_BASE_URL` | `<origin>/api/facebook/callback` |
+| Threads (its own Meta app) | `THREADS_CLIENT_ID`, `THREADS_CLIENT_SECRET`, `PUBLIC_BASE_URL` | `<origin>/api/threads/callback` |
+| YouTube (Google OAuth client) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | `<origin>/api/youtube/callback` |
+| Pinterest | `PINTEREST_APP_ID`, `PINTEREST_APP_SECRET`, `PUBLIC_BASE_URL` | `<origin>/api/pinterest/callback` |
+| LinkedIn | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | `<origin>/api/linkedin/callback` |
 | TikTok | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | `<origin>/api/tiktok/callback` |
 
+- **Facebook** posts to the Pages you manage: text, up to 10 photos, or one video
+  (up to 64 MiB, read whole into memory). The same login also connects Instagram;
+  either can be switched off in Admin → Platforms. The Meta app needs
+  `pages_manage_posts` in App Review.
+- **Threads** posts text, images, videos and carousels (media is fetched from
+  `<PUBLIC_BASE_URL>/uploads/<name>`). The 60-day token refreshes itself when under
+  a week is left.
+- **YouTube** is video only, uploaded in 8 MiB resumable chunks read from R2, so
+  large files never sit in memory. Uploads are private by default and forced
+  private until Google's API audit passes. Metrics read views, likes and comments.
+- **Pinterest** posts an image Pin (fetched from `<PUBLIC_BASE_URL>/uploads/`) to the
+  board chosen on the Accounts page; a refused board falls through to another or a
+  new "Postfalcon" board. Trial-tier apps can only pin in Pinterest's sandbox, which
+  this deployment does not target — apply for Standard access first.
+- **LinkedIn** posts text to the personal profile. The ~60-day token has no refresh;
+  a failed post flags the account for reconnecting.
 - **Instagram** needs an Instagram business account linked to a Facebook Page.
   Instagram downloads each image from `<PUBLIC_BASE_URL>/uploads/<name>`, so set
   `PUBLIC_BASE_URL` to the Worker's public origin (no trailing path). Only JPEG
@@ -151,7 +171,8 @@ post is `failed`; a timeout or 5xx on the final create goes to
 ## Current boundary
 
 Staging runs the ported UI and API: auth, the composer with chunked media
-uploads, Mastodon/Telegram/Bluesky publishing, Instagram and TikTok connect
-flows (both unverified against the real platforms — no developer apps yet),
+uploads, Mastodon/Telegram/Bluesky publishing, Facebook, Instagram, Threads,
+YouTube, Pinterest, LinkedIn and TikTok connect flows and adapters (none verified against
+the real platforms — no developer apps yet),
 Mailgun email when its secrets are set, webhooks, and the per-minute publish
 cron. See `CLOUDFLARE_PLAN.md` for what is verified and what is not.

@@ -1054,3 +1054,31 @@ signed-out visitors to /login. Mailgun secrets are still unset on staging, so
 the overview Email block shows the `cf workers secrets update` setup commands
 until they are added. Part A2 (Instagram Reels) is now unblocked pending a
 real Meta app + business account.
+
+### Facebook, Threads, YouTube, Pinterest, LinkedIn (2026-11-18)
+
+Ported the five remaining live platforms from the Docker app. Adapters under
+`src/platforms/` (`facebook`, `threads`, `youtube`, `pinterest`, `linkedin`; shared Graph
+error classification and the "final create is ambiguous" call in `graph.ts`, now also used by
+Instagram) are registered in `ADAPTERS` and `WORKER_PLATFORMS`, each offered only once its
+secrets are set (`THREADS_*`, `GOOGLE_*`, `PINTEREST_APP_*`, `LINKEDIN_*`; Facebook shares
+Instagram's Meta app).
+
+- **Connect flows** (`routes/oauth.ts`): the Facebook callback now connects Pages as well as
+  Instagram accounts (each switchable in Admin → Platforms; scope gained `pages_manage_posts`);
+  Threads (short → long-lived token), YouTube (Google offline access), LinkedIn (OIDC) and
+  Pinterest (Basic-auth token call, first/created board kept in metadata, plus the board
+  list/choose routes the Accounts page already calls).
+- **Publishing:** Facebook text/photos/video; Threads text/image/video/carousel with
+  self-refreshing token; YouTube resumable upload in 8 MiB R2 range reads (only the last
+  chunk is the ambiguous final create); Pinterest image Pin with board fallback persisted via
+  the new `PublishPost.saveMetadata`; LinkedIn text only.
+- **Metrics:** Facebook, Threads, YouTube. `MetricsTarget` now carries the refresh token, expiry,
+  `saveTokens` and `env` (YouTube/Threads tokens expire), so `refreshOne`/`refreshPostMetrics`
+  take `env` instead of the D1 binding.
+- Not ported: YouTube's `refreshStoredData`/`revoke` (daily stored-data refresh and Google
+  revocation on disconnect) — a policy item to revisit before YouTube API audit.
+- Verified: `npm run typecheck` and `scripts/adapters.test.ts` (39 stubbed-fetch checks:
+  request shapes, refresh paths, chunking, board fallback, metrics mapping). **Not verified
+  against the real platforms** (no developer apps) and not deployed. Workflow suffix bumped to
+  `-v15` (`lib/publish.ts` changed); staging needs `deploy:staging` on the user's go-ahead.

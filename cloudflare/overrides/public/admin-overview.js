@@ -284,7 +284,7 @@ async function retryPosts(ids, confirmMessage) {
 }
 
 const failedPlatform = document.getElementById('failed-platform');
-failedPlatform.innerHTML += ['mastodon', 'bluesky', 'telegram', 'instagram', 'tiktok']
+failedPlatform.innerHTML += ['mastodon', 'bluesky', 'telegram', 'facebook', 'instagram', 'threads', 'youtube', 'pinterest', 'linkedin', 'tiktok']
   .map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`)
   .join('');
 document.getElementById('failed-hours').addEventListener('change', loadFailedPosts);

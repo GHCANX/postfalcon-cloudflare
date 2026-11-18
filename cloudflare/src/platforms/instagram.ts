@@ -1,4 +1,5 @@
-import { type PlatformAdapter, type PublishFailureKind, PublishError, preStepFetch, readFetch, retryAfter } from "./types";
+import { graphFail, graphFinalPost } from "./graph";
+import { type PlatformAdapter, PublishError, preStepFetch, readFetch } from "./types";
 
 // Keep in step with routes/oauth.ts and the Docker app's GRAPH_VERSION.
 export const GRAPH = "https://graph.facebook.com/v19.0";
@@ -6,25 +7,6 @@ export const GRAPH = "https://graph.facebook.com/v19.0";
 const MAX_ITEMS = 10;
 const POLL_INTERVAL_MS = 2000;
 const POLL_MAX_ATTEMPTS = 15;
-// Graph error codes for "slow down": app/user/page rate limits.
-const RATE_LIMIT_CODES = new Set([4, 17, 32, 613]);
-
-/** Classifies a failed Graph call. Code 190 is an expired or revoked token. */
-async function graphFail(response: Response, what: string, isFinal: boolean): Promise<never> {
-  const text = (await response.text().catch(() => "")).slice(0, 400);
-  let code: number | undefined;
-  try {
-    code = (JSON.parse(text) as { error?: { code?: number } }).error?.code;
-  } catch {
-    // Not JSON; classify by status alone.
-  }
-  let kind: PublishFailureKind;
-  if (code === 190 || response.status === 401) kind = "auth";
-  else if (response.status === 429 || (code !== undefined && RATE_LIMIT_CODES.has(code))) kind = "transient";
-  else if (response.status >= 500 || (response.status >= 300 && response.status < 400)) kind = isFinal ? "ambiguous" : "transient";
-  else kind = "rejected";
-  throw new PublishError(kind, `${what} failed (${response.status}): ${text}`, retryAfter(response));
-}
 
 async function postJson(url: string, body: Record<string, unknown>, what: string): Promise<Record<string, any>> {
   const response = await preStepFetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, what);
@@ -95,19 +77,7 @@ export const instagram: PlatformAdapter = {
     await waitForContainer(creationId, token);
 
     // The final create: no idempotency key exists, so a lost response is ambiguous and never retried.
-    let response: Response;
-    try {
-      response = await fetch(`${GRAPH}/${igUserId}/media_publish`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ creation_id: creationId, access_token: token }),
-        signal: AbortSignal.timeout(20_000),
-        redirect: "manual",
-      });
-    } catch (error) {
-      throw new PublishError("ambiguous", `Instagram publish: no response (${error instanceof Error ? error.message : String(error)}); the post may have been created`);
-    }
-    if (!response.ok) await graphFail(response, "Instagram publish", true);
+    const response = await graphFinalPost(`${GRAPH}/${igUserId}/media_publish`, { creation_id: creationId, access_token: token }, "Instagram publish");
     const data = (await response.json().catch(() => ({}))) as { id?: string };
     if (!data.id) throw new PublishError("ambiguous", "Instagram accepted the post but returned no id");
     return data.id;

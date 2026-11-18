@@ -310,7 +310,7 @@ adminRoutes.get("/platforms", async (context) => {
       enabled: platform.enabled,
       defaultEnabled: true,
       switchedAt: savedBy.has(platform.id) ? iso(savedBy.get(platform.id)!) : null,
-      sharesConnectWith: platform.id === "instagram" ? "Facebook Login" : null,
+      sharesConnectWith: platform.id === "instagram" || platform.id === "facebook" ? "Facebook Login" : null,
       credentialsNeeded: platform.requiredSecrets.length ? platform.requiredSecrets.join(", ") : null,
       credentialsMissing: platform.requiredSecrets.filter((name) => !secretConfigured(context.env, name)),
       credentialsSet: platformCredentialsSet(context.env, platform),

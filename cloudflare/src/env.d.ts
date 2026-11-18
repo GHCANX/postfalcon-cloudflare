@@ -20,6 +20,18 @@ interface Env {
   /** TikTok app (Login Kit + Content Posting API) client key and secret. */
   TIKTOK_CLIENT_KEY?: string;
   TIKTOK_CLIENT_SECRET?: string;
+  /** Threads app (Meta, separate from the Facebook app) id and secret. */
+  THREADS_CLIENT_ID?: string;
+  THREADS_CLIENT_SECRET?: string;
+  /** Google OAuth client for YouTube. */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  /** Pinterest app id and secret. */
+  PINTEREST_APP_ID?: string;
+  PINTEREST_APP_SECRET?: string;
+  /** LinkedIn app (Share on LinkedIn + Sign In with LinkedIn using OpenID Connect). */
+  LINKEDIN_CLIENT_ID?: string;
+  LINKEDIN_CLIENT_SECRET?: string;
   /** Public origin of this Worker, e.g. https://example.com. Instagram fetches media from `<origin>/uploads/...`. */
   PUBLIC_BASE_URL?: string;
 }

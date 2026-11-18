@@ -83,6 +83,24 @@ export const WORKER_PLATFORMS: WorkerPlatform[] = [
     },
   },
   {
+    id: "facebook",
+    label: "Facebook",
+    color: "#1877F2",
+    status: "live",
+    connect: "oauth",
+    // Facebook Pages and Instagram accounts connect through the same Facebook Login flow.
+    connectPath: "/api/facebook/connect",
+    requiredSecrets: ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"],
+    setup: {
+      console: "https://developers.facebook.com/apps",
+      callbacks: ["/api/facebook/callback"],
+      secrets: ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"],
+      optionalSecrets: ["FACEBOOK_CONFIG_ID"],
+      steps:
+        "Uses the same Meta app as Instagram: Facebook Pages you manage connect through it. Request pages_manage_posts and pages_read_engagement in App Review (or, for a Business-type app, include them in the login configuration); set the secrets with `cf workers secrets update`.",
+    },
+  },
+  {
     id: "instagram",
     label: "Instagram",
     color: "#E1306C",
@@ -98,6 +116,70 @@ export const WORKER_PLATFORMS: WorkerPlatform[] = [
       optionalSecrets: ["FACEBOOK_CONFIG_ID"],
       steps:
         "Uses one Facebook app: Instagram professional accounts linked to a Facebook Page connect through it. Create a Business-type Meta app with Facebook Login for Business and add the callback under Valid OAuth Redirect URIs; set the secrets with `cf workers secrets update`.",
+    },
+  },
+  {
+    id: "threads",
+    label: "Threads",
+    color: "#111111",
+    status: "live",
+    connect: "oauth",
+    connectPath: "/api/threads/connect",
+    requiredSecrets: ["THREADS_CLIENT_ID", "THREADS_CLIENT_SECRET"],
+    setup: {
+      console: "https://developers.facebook.com/apps",
+      callbacks: ["/api/threads/callback"],
+      secrets: ["THREADS_CLIENT_ID", "THREADS_CLIENT_SECRET"],
+      steps:
+        "A separate Meta app with the Threads use case; add the callback under Redirect Callback URLs. Other people can only connect after App Review approves threads_basic, threads_content_publish and threads_manage_insights.",
+    },
+  },
+  {
+    id: "youtube",
+    label: "YouTube",
+    color: "#FF0000",
+    status: "live",
+    connect: "oauth",
+    connectPath: "/api/youtube/connect",
+    requiredSecrets: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+    setup: {
+      console: "https://console.cloud.google.com/apis/credentials",
+      callbacks: ["/api/youtube/callback"],
+      secrets: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+      steps:
+        "Enable the YouTube Data API v3, then create an OAuth client of type Web application with the callback. Until Google verifies the app only the test users you list can connect, and uploads are forced private until the YouTube API audit passes. Video only.",
+    },
+  },
+  {
+    id: "pinterest",
+    label: "Pinterest",
+    color: "#E60023",
+    status: "live",
+    connect: "oauth",
+    connectPath: "/api/pinterest/connect",
+    requiredSecrets: ["PINTEREST_APP_ID", "PINTEREST_APP_SECRET"],
+    setup: {
+      console: "https://developers.pinterest.com/apps/",
+      callbacks: ["/api/pinterest/callback"],
+      secrets: ["PINTEREST_APP_ID", "PINTEREST_APP_SECRET"],
+      steps:
+        "New apps get Trial access, which can only create Pins in the API sandbox; apply for Standard access to post real Pins. A Pin always needs an image. Users pick the board for their Pins on the Accounts page.",
+    },
+  },
+  {
+    id: "linkedin",
+    label: "LinkedIn",
+    color: "#0A66C2",
+    status: "live",
+    connect: "oauth",
+    connectPath: "/api/linkedin/connect",
+    requiredSecrets: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"],
+    setup: {
+      console: "https://www.linkedin.com/developers/apps",
+      callbacks: ["/api/linkedin/callback"],
+      secrets: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"],
+      steps:
+        "The app must be linked to a LinkedIn Company Page (verify it from the app's Settings tab). Add the Sign In with LinkedIn using OpenID Connect and Share on LinkedIn products; both are approved instantly. Text posts to the personal profile only; the token lasts about 60 days with no refresh.",
     },
   },
   {

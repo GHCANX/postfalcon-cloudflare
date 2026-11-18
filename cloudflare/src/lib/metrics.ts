@@ -1,4 +1,5 @@
 import { ADAPTERS } from "../platforms";
+import { saveAccountTokens } from "./oauth-refresh";
 
 /** Calls per run stay well under the Free plan's 50 subrequests per invocation. */
 const BATCH = 20;
@@ -9,6 +10,8 @@ type Row = {
   platform: string;
   platform_post_id: string;
   access_token: string | null;
+  refresh_token: string | null;
+  token_expires_at: number | null;
   external_account_id: string | null;
   metadata_json: string;
   social_account_id: number;
@@ -21,17 +24,18 @@ type Row = {
  * an auth failure flags the account for reconnecting.
  */
 export async function refreshPostMetrics(
-  database: D1Database,
+  env: Env,
   limit = BATCH,
   now = Math.floor(Date.now() / 1000),
 ): Promise<{ checked: number; refreshed: number }> {
+  const database = env.DB;
   const withMetrics = Object.keys(ADAPTERS).filter((platform) => ADAPTERS[platform]!.fetchMetrics);
   if (withMetrics.length === 0) return { checked: 0, refreshed: 0 };
 
   const { results } = await database
     .prepare(
       `SELECT posts.id, social_accounts.platform, posts.platform_post_id, social_accounts.access_token,
-              social_accounts.external_account_id, social_accounts.metadata_json, posts.social_account_id
+              social_accounts.refresh_token, social_accounts.token_expires_at, social_accounts.external_account_id, social_accounts.metadata_json, posts.social_account_id
          FROM posts JOIN social_accounts ON social_accounts.id = posts.social_account_id
         WHERE posts.status = 'posted' AND posts.platform_post_id IS NOT NULL AND posts.posted_at >= ?
           AND social_accounts.platform IN (${withMetrics.map(() => "?").join(",")})
@@ -45,7 +49,7 @@ export async function refreshPostMetrics(
   let refreshed = 0;
   for (const post of results) {
     try {
-      const metrics = await refreshOne(database, post, now);
+      const metrics = await refreshOne(env, post, now);
       if (metrics) refreshed += 1;
     } catch (error) {
       console.error(JSON.stringify({ event: "metrics_refresh_failed", postId: post.id, platform: post.platform, error: String(error).slice(0, 300) }));
@@ -62,15 +66,20 @@ export async function refreshPostMetrics(
 
 /** Fetches and stores one post's metrics. Returns false if the platform has none to give. */
 export async function refreshOne(
-  database: D1Database,
-  post: Pick<Row, "id" | "platform" | "platform_post_id" | "access_token" | "external_account_id" | "metadata_json">,
+  env: Env,
+  post: Pick<Row, "id" | "platform" | "platform_post_id" | "access_token" | "refresh_token" | "token_expires_at" | "external_account_id" | "metadata_json" | "social_account_id">,
   now = Math.floor(Date.now() / 1000),
 ): Promise<boolean> {
+  const database = env.DB;
   const adapter = ADAPTERS[post.platform];
   if (!adapter?.fetchMetrics || !post.access_token) return false;
   const metrics = await adapter.fetchMetrics({
     platformPostId: post.platform_post_id,
     accessToken: post.access_token,
+    refreshToken: post.refresh_token,
+    tokenExpiresAt: post.token_expires_at,
+    saveTokens: (accessToken, refreshToken, expiresAt) => saveAccountTokens(database, post.social_account_id, accessToken, refreshToken, expiresAt),
+    env,
     externalAccountId: post.external_account_id,
     metadata: JSON.parse(post.metadata_json) as Record<string, any>,
   });

@@ -33,7 +33,7 @@ export type RefreshableAccount = {
  */
 export async function freshAccessToken(
   account: RefreshableAccount,
-  request: { tokenUrl: string; form: (refreshToken: string) => Record<string, string> },
+  request: { tokenUrl: string; form: (refreshToken: string) => Record<string, string>; headers?: Record<string, string> },
   now = Math.floor(Date.now() / 1000),
 ): Promise<string> {
   if (account.accessToken && account.tokenExpiresAt !== null && account.tokenExpiresAt - now > REFRESH_MARGIN_SECONDS) {
@@ -45,7 +45,7 @@ export async function freshAccessToken(
   try {
     response = await fetch(request.tokenUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: { "Content-Type": "application/x-www-form-urlencoded", ...request.headers },
       body: new URLSearchParams(request.form(account.refreshToken)),
       signal: AbortSignal.timeout(TIMEOUT_MS),
       redirect: "manual",

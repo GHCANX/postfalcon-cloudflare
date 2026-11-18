@@ -122,6 +122,9 @@ export async function publishClaimedPost(env: Env, claim: ClaimedPost): Promise<
     env,
     externalAccountId: row.external_account_id,
     metadata: JSON.parse(row.metadata_json) as Record<string, any>,
+    saveMetadata: async (metadata) => {
+      await env.DB.prepare("UPDATE social_accounts SET metadata_json = ? WHERE id = ?").bind(JSON.stringify(metadata), row.social_account_id).run();
+    },
     platformOptions: (JSON.parse(row.platform_options_json) as Record<string, any>)[row.platform] ?? {},
     media,
   };

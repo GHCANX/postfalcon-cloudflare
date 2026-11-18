@@ -8,6 +8,7 @@
  * Needs the `pg` package (not a dependency of this project: `npm i --no-save pg`).
  * Read-only against PostgreSQL. Writes into --out-dir:
  *   import.sql      INSERT statements, in foreign-key order, ids preserved
+ *   import.batch.json  the same, as a JSON batch for `cf d1 query --batch`
  *   media.json      files to copy into R2 (key, local path, size, content type)
  *   report.json     row counts, skipped tables and every value that was altered
  *
@@ -115,7 +116,7 @@ async function main() {
   const pool = new pg.Pool({ connectionString: databaseUrl });
   const notes = [];
   const counts = {};
-  const sql = ["PRAGMA foreign_keys = OFF;"];
+  const sql = [];
   const media = new Map();
   const missingMedia = [];
 
@@ -154,9 +155,10 @@ async function main() {
   } finally {
     await pool.end();
   }
-  sql.push("PRAGMA foreign_keys = ON;");
 
   writeFileSync(join(outDir, "import.sql"), `${sql.join("\n")}\n`);
+  // For `cf d1 query <id> --batch @import.batch.json` (the statement text is too long for --sql).
+  writeFileSync(join(outDir, "import.batch.json"), JSON.stringify(sql.map((statement) => ({ sql: statement }))));
   writeFileSync(join(outDir, "media.json"), JSON.stringify([...media.values()].map(({ userId, ...rest }) => rest), null, 2));
   writeFileSync(join(outDir, "report.json"), JSON.stringify({ counts, mediaFiles: media.size, missingMedia, notes }, null, 2));
   console.log(JSON.stringify({ counts, mediaFiles: media.size, missingMedia: missingMedia.length, notes: notes.length, outDir }, null, 2));

@@ -1097,3 +1097,21 @@ token secret), the restore and cutover rehearsals themselves, the
 D1 → PostgreSQL reverse importer (or an explicit decision to forward-fix only),
 and the free-tier usage review with real numbers. No production resources
 created.
+
+### Rehearsal on a scratch D1 (2026-11-18)
+
+No PostgreSQL is reachable from this machine (Docker stack removed;
+localhost:5432 refuses), so the real-data rehearsal is still open. What ran,
+on a temporary D1 `postfalcon-rehearsal` (created, then deleted):
+`cf d1 migrations apply` (migrations 0001–0011, 9 s); a synthetic dataset
+(1 user, 5 accounts, 500 posts, 400 media) pushed through the importer's
+`convertRow`, applied with `cf d1 query --batch @file` (2 s; `--sql` fails with
+"Argument list too long" at ~400 KB); counts, `posting` → `review_required`
+(100), `gif` → `image`, media links and apostrophe/emoji content all checked;
+then a Time Travel restore after `DELETE FROM posts`, which brought back all
+500 posts in under 3 s (`--force` required non-interactively). The importer
+now emits `import.batch.json` and relies on D1's FK handling instead of
+PRAGMA lines. Still open: the real-data staging rehearsal (needs a copy of the
+Postgres data and its uploads folder), R2 object upload with `cf r2 objects
+put`, the weekly export Workflow, and the cutover/rollback dry run. No
+production resources created.

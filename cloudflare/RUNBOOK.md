@@ -2,9 +2,9 @@
 
 For the one-owner Cloudflare deployment. Commands that change the live account
 are marked **[live]**. Do every rehearsal on `postfalcon-staging` first. Prefix
-`cf` with `PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH`. Flags for the
-commands below have not all been exercised: check `cf <command> --help` and
-note what actually worked in `CLOUDFLARE_PLAN.md`.
+`cf` with `PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH`. Commands marked
+**(rehearsed)** were run against a scratch D1 on 2026-11-18; the rest have not
+been exercised, so check `cf <command> --help` first.
 
 ## Recovery targets
 
@@ -22,7 +22,7 @@ Ambiguous publishes are never retried automatically; they wait in `review_requir
 
 ```sh
 cf d1 time-travel get-bookmark <database-id>                 # note it before risky work
-cf d1 time-travel restore <database-id> --timestamp <ISO time>   # [live] or --bookmark <id>
+cf d1 time-travel restore <database-id> --bookmark <id> --force   # [live] (rehearsed; or --timestamp <ISO time>; --force is required non-interactively)
 ```
 
 Restoring rewinds the whole database, including posts that were published
@@ -73,8 +73,9 @@ Rehearse the whole sequence against staging first (use a copy of the data):
    `DATABASE_URL=… node scripts/import-postgres.mjs --media-dir <uploads dir> --out-dir ./migration-out`.
    Fix anything in `report.json` (`missingMedia` means a post points at a file that is gone).
 3. Take a bookmark of the target D1, apply `migrations/` if it is new, then
-   run `import.sql` against it **[live]** (`cf d1 query` takes SQL; for a file
-   this size use the `--help` of `cf d1 query`/`cf d1 raw`, or split the file).
+   apply it **[live]** (rehearsed): `cf d1 migrations apply <id>`, then
+   `cf d1 query <id> --batch @migration-out/import.batch.json` (`--sql` fails on
+   a real file: the argument is too long). 500 posts / 400 media rows took 2 s.
 4. Copy each file in `media.json` to R2 under its `key` **[live]** with
    `cf r2 objects put`. The Worker's R2 budget counts only its own calls, so
    count these uploads yourself against the 100,000 Class A cap (one per file).

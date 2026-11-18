@@ -65,6 +65,45 @@ First sign-in on a fresh instance: `POST /api/setup` with
 `{setup_token, email, password}` (after fetching `GET /api/csrf-token`). It only
 works while the users table is empty; after that `/api/users` stays closed.
 
+## Configuration reference
+
+Three kinds of setting, all read as `env.<NAME>` in the Worker.
+
+**Declared secrets** (in `cloudflare.config.ts`; the deploy fails or the API answers 503 without them):
+
+| Name | Purpose |
+| --- | --- |
+| `SESSION_SECRET` | Signs sessions and CSRF values, keys rate limits. 32+ random characters. |
+| `SETUP_TOKEN` | One-time proof of ownership for creating the owner account. |
+
+**Variables** (plain text in `cloudflare.config.ts`, changed by editing it and redeploying):
+
+| Name | Purpose |
+| --- | --- |
+| `APP_PROFILE` | Deployment profile, `self-hosted-single-user`. |
+| `PUBLIC_BASE_URL` | The Worker's public origin, no trailing path (staging: `https://socialmedia.endlesscarousel.pink`). Platforms that fetch media (Instagram, Threads, Pinterest) read `<origin>/uploads/<name>`, and every OAuth redirect URI below must be on this origin: start a connect flow from it, not from `workers.dev`. |
+| `R2_BUDGET` | R2 usage caps (see Media uploads). |
+
+**Optional secrets** (not declared in the config, so the instance runs without them and a feature stays off until its secrets exist). Set each with:
+
+```bash
+cf workers secrets update <NAME> --worker postfalcon-staging --type secret_text --text '<value>'
+```
+
+A secret set this way survives later deploys. Use `--worker postfalcon-production` for production. A platform is offered on the Accounts page only when it is switched on in Admin → Platforms **and** every required secret is set.
+
+| Feature | Required secrets | Optional | Also needs |
+| --- | --- | --- | --- |
+| Email | `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_FROM` | `MAILGUN_REGION` (`eu` for the EU region) | |
+| Facebook Pages + Instagram | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | `FACEBOOK_CONFIG_ID` (Business-type Meta app) | `PUBLIC_BASE_URL` (Instagram) |
+| Threads | `THREADS_CLIENT_ID`, `THREADS_CLIENT_SECRET` | | `PUBLIC_BASE_URL` |
+| YouTube | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | |
+| Pinterest | `PINTEREST_APP_ID`, `PINTEREST_APP_SECRET` | | `PUBLIC_BASE_URL` |
+| LinkedIn | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | | |
+| TikTok | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | | |
+
+Mastodon, Telegram and Bluesky need no operator secrets: users bring their own instance, bot token or app password. Admin → Platforms shows, per platform, which secrets are set and the exact redirect URIs to register. Locally, put any of these in `.dev.vars`.
+
 ## Email (Mailgun)
 
 Email is optional and off until configured. Set four values as ordinary Worker

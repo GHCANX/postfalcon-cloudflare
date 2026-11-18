@@ -1082,3 +1082,18 @@ Instagram's Meta app).
   request shapes, refresh paths, chunking, board fallback, metrics mapping). **Not verified
   against the real platforms** (no developer apps) and not deployed. Workflow suffix bumped to
   `-v15` (`lib/publish.ts` changed); staging needs `deploy:staging` on the user's go-ahead.
+
+### Cutover prerequisites: runbook and importer (2026-11-18)
+
+Added `cloudflare/RUNBOOK.md` (recovery targets, Time Travel and export
+backups, restore rehearsal, PostgreSQL → D1 migration, cutover, rollback,
+free-tier review) and `cloudflare/scripts/import-postgres.mjs` (read-only
+PostgreSQL → `import.sql` + R2 `media.json` + `report.json`; ids kept,
+timestamps → unix seconds, `posting` → `review_required`, `gif` → `image`).
+The importer's conversion was checked against the real D1 schema with sample
+rows; it has not run against real PostgreSQL (none available here) or been
+applied to staging. Still open: the weekly R2 export Workflow (needs an API
+token secret), the restore and cutover rehearsals themselves, the
+D1 → PostgreSQL reverse importer (or an explicit decision to forward-fix only),
+and the free-tier usage review with real numbers. No production resources
+created.

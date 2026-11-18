@@ -28,34 +28,15 @@ server.
 - Git pushes to GitHub happen from the VM (the SSH key lives there, not on Windows). If you're working from the
   Windows side, commit locally and tell the user to `git push origin main` on the VM rather than trying to push
   yourself.
-- Deployed to a VPS behind Caddy (automatic HTTPS, see `deploy/Caddyfile`), running under pm2
-  (`ecosystem.config.cjs`) with **`instances: 1`** — `scheduler.js`'s node-cron jobs run in-process, so a second
-  instance would double-publish due posts and double-run media cleanup. Don't change that without moving the
-  scheduler out of the app process first. `scripts/deploy.sh` is the deploy sequence (pull, install, migrate,
-  pm2 reload) — run it manually on the VPS; nothing deploys automatically, and no deploy CI should be added unless asked. The one
-  workflow, `.github/workflows/docker-image.yml` (added at the user's request 2026-10-27), only builds and publishes
-  the Docker image to ghcr.io/postfalcon/postfalcon (amd64 + arm64, each built natively on its own runner then merged — not QEMU,
-  where `npm ci` hung for hours; the free arm64 runner needs the repo public — `latest` + `sha-<commit>`, APP_COMMIT build arg) on
-  each push to main — it doesn't run tests or touch any server. Releases (semver, started at v1.0.0 on 2026-11-03): bump
-  `package.json`'s version, commit, `git tag -a vX.Y.Z`, push with `--follow-tags`; the tag adds image tags `X.Y.Z`/`X.Y`/`X`,
-  then write the notes as a GitHub Release. Admin → Overview → Version shows the package version beside the commit.
+- Docker/pm2/VPS packaging (Dockerfile, compose, Caddy, `install.sh`, `scripts/deploy.sh`, the ghcr image workflow)
+  was removed from this repo on 2026-11-17; the Express app is kept as source only. `scheduler.js`'s node-cron jobs
+  run in-process, so never run more than one app instance. Releases: bump `package.json`'s version, tag, push.
 - Database backups: `lib/backup.js` runs `pg_dump` (custom format) nightly at 03:30 from scheduler.js, keeps the
   last 7 in `backups/` (git-ignored; `BACKUP_DIR` overrides) and, when `S3_BUCKET` is set, uploads each under the
   bucket's `backups/` prefix (kept 30 days; never served by `/uploads`). `npm run backup` takes one on demand. Restore:
   stop the app, `pg_restore --clean --if-exists --no-owner --single-transaction -d "$DATABASE_URL" <file>.dump`, then before restarting turn overdue `scheduled`/`posting` posts into drafts
   (README + admin overview have the UPDATE) so posts that went out after the backup don't publish twice. The admin overview flags
   missing or stale backups.
-- Self-hosters install with `docker compose up -d` (Dockerfile + docker-compose.yml: app + Postgres 16 + Caddy via
-  `deploy/Caddyfile.docker`; the app container runs pending migrations then `index.js`, one container only) or the
-  non-Docker steps in README.md, which is the public install/operator guide — keep it in step with features that change
-  setup. postfalcon.co itself stays on the pm2 + scripts/deploy.sh setup below. Verified end to end on a fresh Ubuntu
-  VM (devbox01) on 2026-10-26; two things that test caught must stay: Caddyfile.docker's `default_sni {$DOMAIN}`
-  (browsers send no SNI to an IP address, so without it HTTPS by IP fails) and the Dockerfile's `chmod -R a+rX /app`
-  after `COPY` (the app runs as `node`; files copied with private 600 modes otherwise crash it with EACCES). The
-  pg_dump client in the image (postgresql16-client) must match the compose Postgres major version. The one-line
-  installer, `install.sh` (served as `<BASE_URL>/install.sh`, a redirect to the raw file on GitHub), sets up
-  `deploy/docker-compose.image.yml` — the same stack using the published image — with `deploy/Caddyfile.docker` and a
-  generated `.env`; keep that compose file in step with the root `docker-compose.yml` (build from source).
 - `.env` values (DB creds, session secret, OAuth app IDs/secrets) are entered by the user directly. Don't invent
   or insert real secrets — use placeholders in `.env.example` and let the user fill in `.env`/`.env.test`.
 - Traffic/SEO analytics (referrers, top pages, trends) runs as a separate self-hosted Umami instance, not part
@@ -462,12 +443,11 @@ A second, separate deployment path: Postfalcon as one self-hosted, single-owner 
 services. Started in Codex on 2026-11-16 and continued here. `CLOUDFLARE_PLAN.md` is the plan *and* the progress
 log: read its "Ordered implementation roadmap" and "Implementation progress" (the last section; its "Handoff state"
 note under Work item 1 is where work stopped) before touching `cloudflare/`, work the roadmap in order, and append a dated note there for
-every step. `cloudflare/README.md` is the operator guide. `conversation_from_gpt.md` is the raw Codex transcript,
-kept only for reference; everything that matters from it is in the plan and this section.
+every step. `cloudflare/README.md` is the operator guide. Everything that matters from the old Codex transcript is in the plan and this section.
 
 - **Isolated.** Nothing under `cloudflare/` is imported by the Express app and nothing there replaces the Docker
-  runtime yet; the rules above (raw `pg` SQL, EJS, vanilla JS, vitest) describe the Docker app, not this
-  subproject, which is TypeScript + Hono on Workers. Don't edit the Docker app as part of the port.
+  runtime yet; the rules above (raw `pg` SQL, EJS, vanilla JS, vitest) describe the Express app, not this
+  subproject, which is TypeScript + Hono on Workers. Don't edit the Express app as part of the port.
 - **Stack decided:** Workers + Hono, D1 (SQLite) as the source of truth incl. sessions, R2 for media, Workflows for
   scheduled delivery with a per-minute Cron Trigger as reconciliation, Mailgun's HTTP API for all email (no SMTP on
   Workers). Deferred: video uploads, Stripe billing. Must stay at zero cost: no Containers, no Workers Paid.
@@ -495,9 +475,8 @@ kept only for reference; everything that matters from it is in the plan and this
   event. Until platform adapters are ported, a claimed post ends in `review_required` — it must never report
   "posted".
 - This checkout tracks the public repo `GHCANX/postfalcon-cloudflare` (`origin`, HTTPS via the `gh` login, branch
-  `main`) since 2026-11-16; commit and push Cloudflare work there. Never commit `conversation_from_gpt.md` or
-  `Caddyfile` (both in `.git/info/exclude`) or the local `docker-compose.yml` edit — that file and `Caddyfile` are
-  this machine's installed-image variant, not the repo's build-from-source compose.
+  `main`) since 2026-11-16; commit and push Cloudflare work there. Never commit the local `Caddyfile` or
+  `docker-compose.yml` (both in `.git/info/exclude`) — they're this machine's own installed-image setup, not repo files.
 
 ## Suggestion
 

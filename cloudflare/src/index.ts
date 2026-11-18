@@ -31,6 +31,8 @@ import { analyticsRoutes } from "./routes/analytics";
 import { webhookRoutes } from "./routes/webhooks";
 import { oauthRoutes } from "./routes/oauth";
 import { ScheduledPostDelivery } from "./workflows/post-delivery";
+import { D1ExportBackup } from "./workflows/d1-backup";
+import { backupConfigured } from "./lib/backup";
 
 const app = new Hono<AppEnv>();
 
@@ -265,6 +267,18 @@ export default {
           }),
       );
     }
+    // Sundays 03:45 UTC: weekly D1 export. The id is per day, so a retry of this tick cannot start a second one.
+    if (tick.getUTCDay() === 0 && tick.getUTCHours() === 3 && tick.getUTCMinutes() === 45 && backupConfigured(env)) {
+      context.waitUntil(
+        context.exports.D1ExportBackup.create({ id: `d1-backup-${tick.toISOString().slice(0, 10)}` }).then(
+          () => undefined,
+          (error: unknown) => {
+            console.error(JSON.stringify({ event: "d1_backup_start_failed", error: errorMessage(error) }));
+            recordServerError(env.DB, { message: "d1_backup_start_failed", err: error });
+          },
+        ),
+      );
+    }
     if (tick.getUTCMinutes() % 15 === 0) {
       context.waitUntil(
         runMaintenance(env).catch((error: unknown) => {
@@ -289,4 +303,4 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-export { ScheduledPostDelivery };
+export { ScheduledPostDelivery, D1ExportBackup };

@@ -101,6 +101,7 @@ A secret set this way survives later deploys. Use `--worker postfalcon-productio
 | Pinterest | `PINTEREST_APP_ID`, `PINTEREST_APP_SECRET` | | `PUBLIC_BASE_URL` |
 | LinkedIn | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | | |
 | TikTok | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | | |
+| Weekly D1 backup | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `D1_DATABASE_ID` | | see below |
 
 Mastodon, Telegram and Bluesky need no operator secrets: users bring their own instance, bot token or app password. Admin → Platforms shows, per platform, which secrets are set and the exact redirect URIs to register. Locally, put any of these in `.dev.vars`.
 
@@ -122,6 +123,30 @@ Then `POST /api/admin/test-email` sends one to the signed-in admin. Emails sent:
 password reset, email verification, "post needs review" and "reconnect this
 account". Every send is recorded (recipient, category, status; never the body)
 in `email_deliveries`.
+
+## Weekly D1 backup
+
+D1 Time Travel restores any minute of the last 7 days. For anything older the
+Worker exports the database to R2 every Sunday at 03:45 UTC (`backups/`, newest
+four kept; the copies count against the 8 GiB total R2 cap, and an export over
+200 MiB is refused). D1 exports exist only in the REST API, so this needs three
+secrets: an API token, your account id and this database's id (`cf d1 list`).
+
+1. Create an API token in the Cloudflare dashboard (My Profile → API Tokens →
+   Custom token) with the single permission **Account → D1 → Edit**, limited to
+   this account. Do not reuse a broad token.
+2. Set the secrets (values are entered by you, not stored in the repo):
+
+```sh
+cf workers secrets update CLOUDFLARE_API_TOKEN  --worker postfalcon-staging --type secret_text --text '<token>'
+cf workers secrets update CLOUDFLARE_ACCOUNT_ID --worker postfalcon-staging --type secret_text --text '<account id>'
+cf workers secrets update D1_DATABASE_ID        --worker postfalcon-staging --type secret_text --text '<database id>'
+```
+
+Admin → Overview shows the last copy and has a **Back up now** button
+(`POST /api/admin/backup`). A failed export, or no copy for over 9 days, raises
+an admin alert. To restore from a copy, download it from the bucket and apply it
+to a new D1 database (RUNBOOK.md).
 
 ## Media uploads
 

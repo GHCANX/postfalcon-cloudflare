@@ -1,3 +1,4 @@
+import { backupConfigured, lastBackupAt, STALE_BACKUP_SECONDS } from "./backup";
 import { adminRecipients, mailConfigured, sendMail } from "./mailer";
 
 /**
@@ -93,6 +94,14 @@ export async function currentProblems(env: Env, now = Math.floor(Date.now() / 10
       title: `${n} ${platform} posts failed in the last hour`,
       detail: "Usually the platform itself having trouble, an expired developer app, or changed API rules. Admin → Overview lists the reasons.",
     });
+  }
+  if (backupConfigured(env)) {
+    const [lastBackup, lastJob] = await Promise.all([
+      lastBackupAt(database),
+      database.prepare("SELECT status FROM worker_job_runs WHERE job_name = 'd1_backup' ORDER BY id DESC LIMIT 1").first<{ status: string }>(),
+    ]);
+    if (lastJob?.status === "failed") problems.push({ key: "backup_failed", title: "The last D1 backup failed", detail: "Check Admin → Activity and the Worker logs; the weekly export is the only copy older than Time Travel's 7 days." });
+    else if (lastBackup !== null && now - lastBackup > STALE_BACKUP_SECONDS) problems.push({ key: "backup_stale", title: "No D1 backup in over 9 days", detail: "The weekly export has not produced a copy. Check Admin → Overview and the Worker logs." });
   }
   if (errors >= ERROR_SPIKE) {
     problems.push({ key: "server_errors", title: `${errors} server errors in the last hour`, detail: "Something is failing repeatedly. Admin → Activity has the details." });

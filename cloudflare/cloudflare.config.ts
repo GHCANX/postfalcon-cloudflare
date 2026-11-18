@@ -52,6 +52,12 @@ export default defineConfig(({ mode }) => {
       },
       triggers: [triggers.scheduled({ schedule: "* * * * *" })],
       exports: {
+        D1ExportBackup: workerExports.workflow({
+          name: `postfalcon-${suffix}-d1-backup-v1`,
+          concurrency: { limit: 1 },
+          limits: { steps: 60 },
+          defaultRetention: { successRetention: "3 days", errorRetention: "3 days" },
+        }),
         ScheduledPostDelivery: workerExports.workflow({
           // Workflow definitions bind to a Worker code version at creation.
           // Advance this suffix deliberately when a Workflow code change must

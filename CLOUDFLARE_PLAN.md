@@ -1115,3 +1115,21 @@ PRAGMA lines. Still open: the real-data staging rehearsal (needs a copy of the
 Postgres data and its uploads folder), R2 object upload with `cf r2 objects
 put`, the weekly export Workflow, and the cutover/rollback dry run. No
 production resources created.
+
+### Weekly D1 export to R2 (2026-11-18)
+
+`D1ExportBackup` Workflow (`src/workflows/d1-backup.ts`, definition
+`postfalcon-<env>-d1-backup-v1`) + `src/lib/backup.ts` + migration
+`0012_d1_backups.sql`. The per-minute cron starts it Sundays 03:45 UTC (instance
+id per day) when `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and
+`D1_DATABASE_ID` are set; `POST /api/admin/backup` starts one on demand. Steps:
+start the REST export (polling format), poll every 15 s up to 20 times, stream the
+signed-URL download into R2 `backups/postfalcon-d1-<time>.sql` (reserve 1 Class A
+operation and the byte size first; refuse over 200 MiB; no step retry, so no
+duplicate copy), prune to the newest four (releasing storage after R2 confirms),
+record a `worker_job_runs` row. Overview shows the last copy; alerts fire on a
+failed run or a copy older than 9 days. Checked: typecheck, build, migration and
+prune query against sqlite, and 9 stubbed-fetch checks of the export API calls
+(`scripts/backup.test.ts`, incl. that the token never appears in errors). Not
+checked: a real export. Needs the migration applied to staging, a deploy, and
+the three secrets from the operator.

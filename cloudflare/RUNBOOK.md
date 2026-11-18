@@ -40,10 +40,14 @@ and a SQL export. There is no `cf d1 export` command; use the REST export
 endpoint (`cf schema` shows its request shape) with a token limited to D1 edit
 on this one database, run from your machine, never stored in the repo.
 
-**Weekly export to R2 (`backups/` prefix, four kept)** is not built yet: it
-needs that API token as a Worker secret and a dedicated Workflow. Until it
-exists, Time Travel's 7 days is the only automatic backup, so take a manual
-export weekly.
+**Weekly export to R2 (`backups/` prefix, four kept)** runs Sundays 03:45 UTC once
+the three backup secrets are set (README "Weekly D1 backup"); Admin → Overview
+shows the last copy and can start one. To restore from a copy, download it from
+the bucket, create a new D1 database and load the dump into it (it already
+contains the schema, so do not apply `migrations/` first). Load it with the
+dashboard's import, or `cf d1 query <new-id> --batch` from a split file; then
+check it and point the Worker at it. Until
+the secrets are set, Time Travel's 7 days is the only automatic backup.
 
 ## 2. Restore rehearsal (gate for cutover)
 

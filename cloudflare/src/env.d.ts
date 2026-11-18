@@ -32,6 +32,10 @@ interface Env {
   /** LinkedIn app (Share on LinkedIn + Sign In with LinkedIn using OpenID Connect). */
   LINKEDIN_CLIENT_ID?: string;
   LINKEDIN_CLIENT_SECRET?: string;
+  /** Weekly D1 export: an API token limited to D1 edit on this database, plus the account and database ids. */
+  CLOUDFLARE_API_TOKEN?: string;
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  D1_DATABASE_ID?: string;
   /** Public origin of this Worker, e.g. https://example.com. Instagram fetches media from `<origin>/uploads/...`. */
   PUBLIC_BASE_URL?: string;
 }

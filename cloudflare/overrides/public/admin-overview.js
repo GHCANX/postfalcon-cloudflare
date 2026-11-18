@@ -182,9 +182,28 @@ function renderEmail(email) {
 }
 
 function renderBackups(backups) {
-  document.getElementById('backups-note').textContent =
-    'No pg_dump here: the database is D1, restored with Time Travel (dashboard → D1 → the database → Time Travel, up to 7 days back).';
-  document.getElementById('backup-now').hidden = true;
+  const note = document.getElementById('backups-note');
+  const button = document.getElementById('backup-now');
+  if (backups && backups.configured) {
+    note.textContent = backups.lastAt
+      ? `Weekly D1 export to R2 (Sundays 03:45 UTC, last four kept). Last copy: ${when(backups.lastAt)}. Time Travel covers the last 7 days.`
+      : 'Weekly D1 export to R2 is on (Sundays 03:45 UTC, last four kept); no copy has been made yet. Time Travel covers the last 7 days.';
+    button.hidden = false;
+    button.onclick = async () => {
+      button.disabled = true;
+      try {
+        await apiJson('/api/admin/backup', { method: 'POST' });
+        showToast('Backup started; it takes about a minute.', 'success');
+      } catch (error) {
+        showToast(error.message || 'Could not start the backup.', 'error');
+      } finally {
+        button.disabled = false;
+      }
+    };
+  } else {
+    note.textContent = `${(backups && backups.setup) || 'Weekly exports are not set up.'} Until then the database is restored with Time Travel (up to 7 days back).`;
+    button.hidden = true;
+  }
   const table = document.getElementById('backup-rows').closest('.admin-table-wrap');
   if (table) table.hidden = true;
   const restore = table && table.nextElementSibling;

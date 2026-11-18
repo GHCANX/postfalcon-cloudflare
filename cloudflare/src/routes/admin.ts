@@ -9,6 +9,7 @@ import { clearInstanceSetting, readInstanceSettings, resolveSettings, saveInstan
 import { mailConfigured, sendMail } from "../lib/mailer";
 import { scheduleNextOccurrence } from "../lib/recurrence";
 import { iso } from "./accounts";
+import { backupConfigured, lastBackupAt, STALE_BACKUP_SECONDS } from "../lib/backup";
 
 /**
  * Operator routes at /api/admin. Session or token auth like everything else,
@@ -84,10 +85,14 @@ adminRoutes.get("/overview", async (context) => {
     if (worst >= 80) problems.push(`R2 use is at ${worst}% of a hard cap; uploads or reads stop at 100%.`);
   }
   if (owners?.n === 0) problems.push("No owner account exists yet; POST /api/setup.");
+  const backupsOn = backupConfigured(context.env);
+  const lastBackup = await lastBackupAt(database);
+  if (backupsOn && lastBackup !== null && now - lastBackup > STALE_BACKUP_SECONDS) problems.push(`The last D1 backup is ${Math.round((now - lastBackup) / 86400)} days old.`);
 
   return context.json({
     profile: context.env.APP_PROFILE,
     problems,
+    backups: { note: "D1 Time Travel keeps 7 days of point-in-time restore on the Free plan; the weekly export to R2 covers older recovery.", configured: backupsOn, lastAt: lastBackup === null ? null : iso(lastBackup), setup: backupsOn ? undefined : "Set CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and D1_DATABASE_ID (see the README) to enable the weekly D1 export to R2." },
     scheduler: lastRun
       ? { lastRunAt: iso(lastRun.started_at), secondsAgo: schedulerAge, status: lastRun.status, details: JSON.parse(lastRun.details_json) as unknown }
       : null,
@@ -127,7 +132,6 @@ adminRoutes.get("/overview", async (context) => {
         : "Email is off. Workers secrets cannot be set from inside the app; set them once with `cf workers secrets update` (README “Email (Mailgun)”).",
       deliveries: deliveries.results.map((row) => ({ ...row, created_at: iso(row.created_at) })),
     },
-    backups: { note: "D1 Time Travel keeps 7 days of point-in-time restore on the Free plan; scheduled R2 exports are not set up yet." },
     // The deployed Worker Version (id/timestamp), when the binding is present.
     version: context.env.VERSION_METADATA ? { id: context.env.VERSION_METADATA.id, timestamp: context.env.VERSION_METADATA.timestamp } : null,
   });
@@ -154,6 +158,14 @@ async function sendTestEmail(context: Context<AppEnv>) {
     ? context.json({ ...base, sent: true, response: "OK" })
     : context.json({ ...base, sent: false, response: result.error ?? "send failed", error: result.error }, 502);
 }
+
+/** Starts a D1 export now (the Sunday 03:45 UTC one runs on its own). */
+adminRoutes.post("/backup", async (context) => {
+  if (!backupConfigured(context.env)) return context.json({ error: "backup_not_configured" }, 409);
+  const id = `d1-backup-manual-${Date.now()}`;
+  await (context.executionCtx as ExecutionContext).exports.D1ExportBackup.create({ id });
+  return context.json({ started: true, instance: id }, 202);
+});
 
 adminRoutes.post("/test-email", sendTestEmail);
 adminRoutes.post("/email/test", sendTestEmail);
